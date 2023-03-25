@@ -1,0 +1,69 @@
+<apex:component access="global">
+
+<div id="wrapper">    
+    <div id="reportFilters" style="width:19%;float:left;">    
+        <form id="inputs">
+          <div id="offPage">Used For Setting Filter Title Widths</div>
+          <div id="filters"></div>
+        
+          <div id="togglescontainer" class="filterContainer" style="display:none;">
+            <p id="togglestitle" class="filtertitle">*Toggles</p>
+            <div id="toggles" class="filter innerContainer">
+            </div>
+          </div>
+        
+          <div id="filterbuttonscontainer" class="filterContainer" style="display:none;">
+            <p id="filterbuttonstitle" class="filtertitle">*Actions</p>
+            <div id="filterbuttons" class="filter innerContainer">
+              <button id="makeReport" class="filterButton" type="button" onclick="genReport();">Update Report</button>
+              <br />
+              <button id="printreport" class="filterButton" type="button" onclick="printReport();">Print Report</button>
+              <br /><!--
+              <button id="hideFilters" class="filterButton" type="button" onclick="$('.filtertitle').trigger('click');">Toggle Filters</button>
+              <br />-->
+              <button id="clearFilters" class="filterButton" type="button" onclick="clearAllFilters();">Clear Filters</button>
+              <br />
+              <button id="openMeBtn" class="filterButton" type="button" onclick="openMe();">Open In New Tab</button>
+            </div>
+          </div>
+        </form>
+    </div>
+        
+    <div id="report" style="width:80%;float:left;">
+        <p></p>
+        <table id="dashboard" class="widgetContainer" style="width:100%;min-height:0px;margin-left:10px;">
+        </table>
+        <div class="container" style="min-height:0px;overflow-y:hidden;">
+            <p id="drillDownListheader" class="drillDownHeader">
+                <span id="drillDownListtitle" class="tableTitle"></span>
+                <button id="printdrilldownlist" type="button" onclick="printTable('#drillDownList');" style="width:auto;">Print Table</button>
+                <button id="exportdrilldownlist" type="button" onclick="csvTable('#drillDownList');" style="width:auto;">Export CSV</button>
+                <button id="rebuilddrilldownlist" type="button" onclick="refreshTable('#drillDownList');" style="width:auto;">Reset Columns</button>
+            </p>
+            <div id="drillDownListcontainer" class="drillContainer">
+                <table id="drillDownList" class="drillDownList"></table>
+            </div>
+        </div>
+        
+    </div>
+</div>
+
+<c:chartscss />
+<c:fullcalendarcss />
+
+<apex:includeScript value="/soap/ajax/40.0/connection.js"/>
+<apex:includeScript value="/soap/ajax/40.0/apex.js"/>
+<apex:includeScript value="/support/console/40.0/integration.js"/>
+<script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDgwtfmJHjjP7eQXwDbhWnX75W3PVZR_IE&libraries=places"></script>
+
+<c:utilitiesjs />
+<c:flotjs />
+<c:tablesorterjs />
+<!--<c:awesomecloudjs/>-->
+<c:emailparserjs />
+<c:momentjs />
+<c:fullcalendarjs />
+<c:chartsjs />
+
+</apex:component>

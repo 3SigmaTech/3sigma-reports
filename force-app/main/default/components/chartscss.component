@@ -1,0 +1,577 @@
+<apex:component layout="none">
+<style id="reportStyling">
+  button {
+    border: 1px solid #000;
+    border-radius: 5px;
+  }
+  .filterButton {
+    width: 100%;
+    margin: 5px 0px 5px 0px;
+  }
+  #wrapper {
+    width:100%;
+    min-width: 900px;
+  }
+  #inputs {
+    overflow:hidden;
+    padding: 0px;
+    font-size: 100%;
+  }
+  #report {
+    width:100%;
+    display:inline-block;
+  }
+  .columncontainer {
+    overflow:hidden;
+    page-break-inside: avoid;
+    margin-top: 25px;
+  }
+  .rightcolumn {
+    width: 25%;
+    float: right;
+    margin-left: 0px
+    margin-right: 0px;
+  }
+  .leftcolumn {
+    width: 74%;
+    float: left;
+    margin-left: 0px
+    margin-right: 0px;
+  }
+  .halfrightcolumn {
+    width: 49%;
+    float: right;
+    margin-left: 0px
+    margin-right: 0px;
+  }
+  .halfleftcolumn {
+    width: 49%;
+    float: left;
+    margin-left: 0px
+    margin-right: 0px;
+  }
+  .spacing {
+    height: 100px;
+  }
+  .abspos {
+    position: absolute;
+    top: 0px;
+    left: 0px;
+  }
+  body {
+    font-family: Arial,Helvetica,sans-serif;
+    font-size: 12px;
+    /*overflow: hidden;*/
+    -webkit-print-color-adjust:exact;
+  }
+  .listTitle {
+    margin: 20px 10px 0px 10px;
+    font-size:150%;
+    cursor: pointer;
+  }
+  .metricsTitle {
+    margin: 20px 10px 0px 10px;
+    font-size: 150%;
+    cursor: pointer;
+  }
+  .controlTitle {
+    margin-left: 20px;
+    margin-right: 20px;
+  }
+  .container {
+    display:inline-block;
+    position:relative;
+    width:95%;
+    min-height:25px;
+    margin-top: 10px;
+  }
+  .trendingChartscalar, .barchartscalar, .adhocscalar {
+    margin-top: 25%;
+  }
+  .calendarscalar {
+    margin-top: 50%;
+  }
+  .mapscalar {
+    margin-top: 100%;
+  }
+  .piechartscalar {
+    margin-top: 50%;
+  }
+  .legendscalar {
+    margin-top: 5%;
+  }
+  .mapinput {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 50%;
+    max-width: 400px;
+    z-index: 1;
+  }
+  .fillcontainer {
+    position:absolute;
+    top:0;
+    bottom:0;
+    left:0;
+    right:0;
+    width: 98%;
+    height: 98%;
+    margin: 0 auto;
+  }
+  .tableTitle {
+    padding-left: 15px;
+    font-weight: bold;
+    margin-bottom: 3px;
+    font-size: 125%;
+  }
+  .drillOuterContainer {
+    visibility: hidden;
+  }
+  .drillContainer, .listContainer, .metricsContainer {
+    display: block;
+    border-radius: 10px;
+    border: 2px solid #000000;
+  }
+  .drillContainer, .listContainer {
+    display: inline-block;
+    visibility: hidden;
+  }
+  .listOuterContainer, .metricsOuterContainer {
+     min-height : 0px;
+     margin-left : 10px;
+  }
+  .drillDownHeader {
+    visibility: hidden;
+    cursor: pointer;
+  }
+  .drillDownHeader span {
+    margin-right : 10px;
+  }
+  .metricsContainer {
+    border-radius: 10px;
+    border: 2px solid #000000;
+  }
+  .tablecontainer {
+    display: inline-block;
+    border-radius: 10px;
+    border: 2px solid #000000;
+  }
+  table {
+    page-break-inside:auto;
+  }
+  tr {
+    page-break-inside:avoid;
+    page-break-after:auto;
+  }
+  .drillDownList {
+    padding: 10px;
+    border-style: hidden;
+    border-collapse: collapse;
+    width: 100%;
+  }
+  .drillDownList tr:nth-child(even) {
+    background: #CCC;
+  }
+  .drillDownList tr:nth-child(odd) {
+    background: #FFF;
+  }
+  .drillDownList th {
+    border-left: 1px solid grey;
+    padding: 5px;
+    cursor: pointer;
+  }
+  .drillDownList td {
+    border-left: 1px solid grey;
+    padding: 5px;
+  }
+  /*.drillDownList tr:first-child td:first-child ,*/
+  .drillDownList tr:first-child th:first-child {
+    border-top-left-radius:10px;
+  }
+  /*.drillDownList tr:first-child td:last-child,*/
+  .drillDownList tr:first-child th:last-child  {
+    border-top-right-radius:10px;
+  }
+  /*.drillDownList tr:last-child th:first-child ,*/
+  .drillDownList tr:last-child td:first-child {
+    border-bottom-left-radius:10px;
+  }
+  /*.drillDownList tr:last-child th:last-child ,*/
+  .drillDownList tr:last-child td:last-child {
+    border-bottom-right-radius:10px;
+  }
+  .tablefillwidth td:last-child {
+    width: 100%;
+  }
+  .tablefillwidth th, .tablefillwidth td {
+    white-space:nowrap;
+  }
+
+  #offPage {
+    position:absolute;
+    top:-1000px;
+  }
+
+  .header {
+    background-color : #CCC;
+  }
+  .headerSortDown {
+    background-color : #FFF;
+  }
+  .headerSortUp {
+    background-color : #999;
+  }
+
+  @media print {
+    body {
+      font-size: 75%;
+      width: 100%;
+    }
+    .title {
+      margin: 5px 10px 0px 10px;
+    }
+    button {
+      visibility: hidden;
+    }
+    .buttondisplay, .controlButtons {
+      visibility: hidden;
+    }
+    td, iframe, canvas {
+        page-break-inside: avoid;
+    }
+    #reporttitle {
+      display: none;
+    }
+    #reportFilters {
+        display: none;
+    }
+    #report {
+        width:100%;
+        float: none;
+        display: block;
+    }
+    .container.drillContainer {
+        display: block;
+        border: none;
+    }
+  }
+</style>
+
+<style id="filterStyling">
+    .filterContainer {
+        overflow: hidden;
+        width: 100%;
+    }
+
+    .filtertitle {
+        padding: 0px;
+        margin: 15px 0px 0px 0px;
+        /*border-top: 1px solid #000;*/
+        border-bottom: 1px solid #000;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .selected {
+        background-color: rgb(0,95,178);
+        color: #fff;
+    }
+    .filter {
+        z-index: 10;
+    }
+
+    .filterContainer > input {
+        width: 100%;
+        background-color: #eee;
+    }
+    .filterContainer > input[type='checkbox'] {
+        width: 10%;
+        max-width:16px;
+        min-width: 13px;
+        margin-left:10px;
+        margin-right:-3px;
+        position:relative;
+        vertical-align:middle;
+    }
+    /*
+    label{
+        position:relative;
+        display:inline-block;
+        vertical-align:middle;
+    }
+    */
+    .filterContainer > select {
+        width: 100%;
+        border: 0;
+        background-color: #eee;
+    }
+    .filterContainer > select:focus {
+        outline: none !important;
+    }
+    .permanentHide {
+        display: none !important;
+    }
+</style>
+
+<style id="metricStyling">
+
+  .metricContainer {
+    overflow: hidden;
+    display: inline-block;
+    float: left;
+    margin: 5px;
+  }
+
+  .metrictitle {
+    padding: 15px 0px 0px 0px;
+    margin: 0px;
+    border-bottom: 1px solid #000;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .metric {
+    z-index: 10;
+  }
+  .metricContainer > input {
+    width: 100%;
+    background-color: #eee;
+  }
+  .metricContainer > input[type='checkbox'] {
+    width: 10%;
+    max-width:16px;
+    min-width: 13px;
+    margin-left:10px;
+    margin-right:-3px;
+    position:relative;
+    vertical-align:middle;
+  }
+  .buttondisplay {
+    border-radius: 10px;
+    width: 20px;
+    height: 20px;
+    margin-bottom: -20px;
+    margin-right: -8px;
+    cursor: pointer;
+    background: radial-gradient(#000000, rgba(0,0,0,0) 5px); /*12ACFE*/
+    float: right;
+  }
+  .controlButtons {
+    display:none;
+    position:absolute;
+    width:110px;
+    border-radius: 10px;
+    z-index: 10;
+  }
+  .exportButton {
+    width:100%;
+    padding-left: 5px;
+    padding-right: 5px;
+    margin: 0px;
+    border-radius: 10px;
+    background: radial-gradient(#12ACFE,#000000 100px);
+    border-color: #acacac;
+    color: #cacaca;
+  }
+
+  .exportButton:hover {
+    color: #ffffff;
+    border-color: #cacaca;
+  }
+  .metricContainer > select {
+    width: 100%;
+    border: 0;
+    background-color: #eee;
+  }
+  .metricContainer > select:focus {
+    outline: none !important;
+  }
+
+  .permanentHide {
+    display: none !important;
+  }
+
+  .directionalOuterContainer {
+    min-height: 120px;
+  }
+  .directionalcontainer {
+    margin-top: 1em;
+    text-align: center;
+  }
+  .arrowouterbox {
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .arrowinnerbox {
+    display: inline-block;
+    border-radius: 50%;
+  }
+  .directionalarrow {
+    display: inline-block;
+    width: 4em;
+    height: 4em;
+    border: 0.5em solid;
+    border-radius: 50%;
+    text-align: center;
+    padding: 0;
+    vertical-align: middle;
+  }
+  .directionalarrow:after {
+    content: '';
+    display: inline-block;
+    margin-top: 1.4em;
+    width: 1.4em;
+    height: 1.4em;
+    border-top: 0.5em solid;
+    border-right: 0.5em solid;
+  }
+
+  .greenuparrow {
+    border-color: #00ff00;
+  }
+  .greenuparrow:after {
+    border-color: #00ff00;
+    margin-left: 0.1em;
+    -moz-transform: rotate(-45deg);
+    -webkit-transform: rotate(-45deg);
+    transform: rotate(-45deg);
+  }
+  .greendownarrow {
+    border-color: #00ff00;
+  }
+  .greendownarrow:after {
+    border-color: #00ff00;
+    margin-left: 0.1em;
+    margin-top: 0.8em;
+    -moz-transform: rotate(135deg);
+    -webkit-transform: rotate(135deg);
+    transform: rotate(135deg);
+  }
+
+  .reduparrow {
+    border-color: #ff0000;
+  }
+  .reduparrow:after {
+    border-color: #ff0000;
+    margin-left: 0.1em;
+    -moz-transform: rotate(-45deg);
+    -webkit-transform: rotate(-45deg);
+    transform: rotate(-45deg);
+  }
+  .reddownarrow {
+    border-color: #ff0000;
+  }
+  .reddownarrow:after {
+    border-color: #ff0000;
+    margin-left: 0.1em;
+    margin-top: 0.8em;
+    -moz-transform: rotate(135deg);
+    -webkit-transform: rotate(135deg);
+    transform: rotate(135deg);
+  }
+
+  .graynoarrow {
+      border-color: #aaaaaa;
+  }
+  .graynoarrow:after {
+    font-weight: 900;
+    margin-top: 1.8em;
+    width: 2em;
+    height: 2em;
+    border-color: #aaaaaa;
+    border-right: 0;
+    -moz-transform: rotate(0deg);
+    -webkit-transform: rotate(0deg);
+    transform: rotate(0deg);
+  }
+  .metricvalue {
+    font-weight: 900;
+  }
+</style>
+
+<style id="moreStyle">
+    .accountnull, .account {
+        background: #FFF !important;
+        border-top: 1px solid rgba(0,0,0,0.05);
+    }
+    .accountGreen {
+        background-color: #BFFEBF !important;
+        border-top: 1px solid rgba(0,0,0,0.05);
+    }
+    .accountYellow {
+        background-color: #FEFEBF !important;
+        border-top: 1px solid rgba(0,0,0,0.05);
+    }
+    .accountRed {
+        background-color: #FEBFBF !important;
+        border-top: 1px solid rgba(0,0,0,0.05);
+    }
+
+  #legendcontainer{
+
+  }
+  .legendLabel{
+    padding: 5px 20px 0px 0px;
+    cursor: pointer;
+  }
+  .legendColorBox{
+
+  }
+  #legendcontainer > table {
+    border: 1px black solid;
+    margin: 5px;
+  }
+
+  .narrowleftcolumn {
+    width: 32%;
+    float: left;
+    margin-left: 0px;
+    margin-right: 0px;
+  }
+  .narrowmiddlecolumn {
+    width: 32%;
+    float: left;
+    margin-left: 2%;
+    margin-right: 2%;
+  }
+  .narrowrightcolumn {
+    width: 32%;
+    float: right;
+    margin-left: 0px;
+    margin-right: 0px;
+  }
+  .splitleftcolumn {
+    width: 49%;
+    float: left;
+    margin-left: 0px;
+    margin-right: 0px;
+  }
+  .splitrightcolumn {
+    width: 49%;
+    float: right;
+    margin-left: 0px;
+    margin-right: 0px;
+  }
+  .pagebreak {
+    page-break-after: always;
+  }
+  .widgetContainer {
+    table-layout: fixed;
+  }
+
+
+  .checkedfalse{
+    background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABEAAAAQCAYAAADwMZRfAAAEJGlDQ1BJQ0MgUHJvZmlsZQAAOBGFVd9v21QUPolvUqQWPyBYR4eKxa9VU1u5GxqtxgZJk6XtShal6dgqJOQ6N4mpGwfb6baqT3uBNwb8AUDZAw9IPCENBmJ72fbAtElThyqqSUh76MQPISbtBVXhu3ZiJ1PEXPX6yznfOec7517bRD1fabWaGVWIlquunc8klZOnFpSeTYrSs9RLA9Sr6U4tkcvNEi7BFffO6+EdigjL7ZHu/k72I796i9zRiSJPwG4VHX0Z+AxRzNRrtksUvwf7+Gm3BtzzHPDTNgQCqwKXfZwSeNHHJz1OIT8JjtAq6xWtCLwGPLzYZi+3YV8DGMiT4VVuG7oiZpGzrZJhcs/hL49xtzH/Dy6bdfTsXYNY+5yluWO4D4neK/ZUvok/17X0HPBLsF+vuUlhfwX4j/rSfAJ4H1H0qZJ9dN7nR19frRTeBt4Fe9FwpwtN+2p1MXscGLHR9SXrmMgjONd1ZxKzpBeA71b4tNhj6JGoyFNp4GHgwUp9qplfmnFW5oTdy7NamcwCI49kv6fN5IAHgD+0rbyoBc3SOjczohbyS1drbq6pQdqumllRC/0ymTtej8gpbbuVwpQfyw66dqEZyxZKxtHpJn+tZnpnEdrYBbueF9qQn93S7HQGGHnYP7w6L+YGHNtd1FJitqPAR+hERCNOFi1i1alKO6RQnjKUxL1GNjwlMsiEhcPLYTEiT9ISbN15OY/jx4SMshe9LaJRpTvHr3C/ybFYP1PZAfwfYrPsMBtnE6SwN9ib7AhLwTrBDgUKcm06FSrTfSj187xPdVQWOk5Q8vxAfSiIUc7Z7xr6zY/+hpqwSyv0I0/QMTRb7RMgBxNodTfSPqdraz/sDjzKBrv4zu2+a2t0/HHzjd2Lbcc2sG7GtsL42K+xLfxtUgI7YHqKlqHK8HbCCXgjHT1cAdMlDetv4FnQ2lLasaOl6vmB0CMmwT/IPszSueHQqv6i/qluqF+oF9TfO2qEGTumJH0qfSv9KH0nfS/9TIp0Wboi/SRdlb6RLgU5u++9nyXYe69fYRPdil1o1WufNSdTTsp75BfllPy8/LI8G7AUuV8ek6fkvfDsCfbNDP0dvRh0CrNqTbV7LfEEGDQPJQadBtfGVMWEq3QWWdufk6ZSNsjG2PQjp3ZcnOWWing6noonSInvi0/Ex+IzAreevPhe+CawpgP1/pMTMDo64G0sTCXIM+KdOnFWRfQKdJvQzV1+Bt8OokmrdtY2yhVX2a+qrykJfMq4Ml3VR4cVzTQVz+UoNne4vcKLoyS+gyKO6EHe+75Fdt0Mbe5bRIf/wjvrVmhbqBN97RD1vxrahvBOfOYzoosH9bq94uejSOQGkVM6sN/7HelL4t10t9F4gPdVzydEOx83Gv+uNxo7XyL/FtFl8z9ZAHF4bBsrEwAAASpJREFUOBGlkz9ugzAUxm1UCaSUZAMxcoPsXbpViEP0CDlEl14lAwsnQJkipEw9BIxQVWLgX9+HhPNMQCKJJcDmvffzZ/uz7PtePNteOCBN0w/btg+GYWyX4FJKUVXVKcuy7yAIflGvIEmS7H3fP3qet2uahrPn+m9t224ocEBQQSzL2juOsyvLcq5I+0e5wjTNd1IlSXGvIMiCgq7rtIK5AXIoF5tp0NPiNbS6rsfu3V9NCTZzjRLaD8E3/gbCg0uSpjkPQzhIg0DmmuUAwG2gQSCfz7C0nOlECjKezhoI4GQRdbIKQlb+yfP8z3XdVy51qga2p2shyJRnig2mUpAwDC9xHH8WRQErb6fFfAxAFEVfpHq4vbAtj48yFVwLXge4XGDMQ65563v/HjuaxUG9zK8AAAAASUVORK5CYII=);
+    height: 16px;
+    width: 17px;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+
+  .checkedtrue{
+    background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAATCAYAAACQjC21AAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAALGgAACxoB9ld2mQAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAIaSURBVDiN1ZRNaxpRFIbfO3NnOh8ZM6gFd8YKhWYIgUBWictu+zv6M/wz0kUXRZDsCpK1XQSHkkWRQCcTpKgVRMfBe04XVfFjbLpsz+pyz7nPfc/HvcC/bmJ34+7uzmXm16ZploUQ+qGDRPRzNpt9bbVa/Xq9TpnAm5ubFycnJzXXdd+bpnkGQGaqEAIAfkyn049xHH+4vr6OV76tA0dHR3nbtt96nvdOSmkw864qCCEghICmaa/SNDVc1/0CIBuo67ojpSxqmmYkSbKnrN/vYzAYIJ/Po1QqgZlfMnNuMyYzJSLCpjohBKbTKbrdLsIwxPn5OQqFAogIaZqKZekYALRNUJIkaxAzb63jOEYYhhiNRrBtG1JK7JYkU+FKnVIKw+EQSZLAsizc398jiiIEQYBqtQpd10FEzwNXNplM0Ol00Ov14Ps+Hh4eYFkWgiCA7/uZsEwgM2+p7PV6GI/HkFLi6uoKlUplnQkRQSn1vEIiguM4uLi4ABHh9vYWpmni9PQUuVwOSikIIf4OuFgs1g0pFouo1WooFApQSqFcLq99y4YIXdcPA5VSsyRJRpZlLQzDkESE4+NjXF5egogg5e9wIcSqKcP5fD7BcmT2gI+Pj0PP8z4z8xvDMIKVf/nUtsaEmYeDweDT09PTt03G3ufQbDY9x3ECTdMqh2oMAGmajqMo6jYaje/tdntxELhz2Z/8jI1U/x/7BfV4FhDh6494AAAAAElFTkSuQmCC);
+    height: 16px;
+    width: 17px;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+</style>
+</apex:component>

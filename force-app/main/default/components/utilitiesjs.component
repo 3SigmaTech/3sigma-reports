@@ -1,0 +1,1105 @@
+<apex:component layout="none">
+<script id="reportUtilities" type="text/javascript">
+    var previousPoint = null;
+
+    jQuery.fn.slideLeft = function( speed, callback ) {
+        thisanimate({
+            width: "hide",
+            marginLeft: "hide",
+            marginRight: "hide"
+        }, speed, callback );
+    }
+
+    jQuery.fn.slideRight = function( speed, callback ) {
+        this.animate( {
+            width: "show",
+            marginLeft: "show",
+            marginRight: "show"
+        }, speed, callback );
+    }
+
+    function hideFilter(el) {
+        if (USEHORIZONTALFILTERS) {
+            $(el).slideLeft(200);
+        } else {
+            $(el).slideUp(200);
+        }
+    }
+
+    function showFilter(el) {
+        if (USEHORIZONTALFILTERS) {
+            $(el).slideRight(200);
+        } else {
+            $(el).slideDown(200);
+        }
+    }
+
+    function initializeFilters(inputStr) {
+
+        // Set default end date to allow for pinning start date
+        var enddt = new Date();
+        var dde = enddt.getDate();
+        var mme = enddt.getMonth()+1; //January is 0
+        var yyyye = enddt.getFullYear();
+        
+        if(dde < 10) { dde = '0' + dde }
+        if(mme < 10) { mme = '0' + mme }
+      
+        $('#enddate').val(yyyye + '-' + mme + '-' + dde + 'T23:59:59');
+        
+        // Set filter values from URL after loading
+        getFiltersFromURL();
+        
+        var startdt = new Date();
+        
+        // UPDATE TO/FROM DATE FROM RECENCY
+        if (inputStr == 'datechange') {
+          $("#recency").val(" ");
+        }
+
+        if ( (getSelect('recency','value') != " ") ) {
+        
+          // Kick these to ensure reset
+          enddt = enddt.addDays(-1);
+          startdt = startdt.addDays(1);
+          
+          var rStr = getSelect('recency','value');
+          var rArr = rStr.split('|');
+          
+          for (var ndx = 0; ndx < rArr.length; ndx++) {
+              var rVal = parseInt(rArr[ndx]);
+              
+              var myStart = new Date();
+              var myEnd = new Date();
+              
+              if (rVal > 0) {
+                  myStart = myStart.addDays(-1 * rVal);
+                  myEnd = myEnd.addDays(-1);
+              } else if (rVal < 0) {
+                  myStart = myStart.addDays(1);
+                  myEnd = myEnd.addDays(-1 * rVal);
+              }
+               
+              if (myStart < startdt) {
+                  startdt = new Date(myStart);
+              }
+              if (myEnd > enddt) {
+                  enddt = new Date(myEnd);
+              }
+          }
+          
+          if (startdt > enddt) {
+              var tdt = new Date(startdt);
+              startdt = new Date(enddt);
+              enddt = new Date(tdt);
+          }
+          
+          dde = enddt.getDate();
+          mme = enddt.getMonth()+1; //January is 0
+          yyyye = enddt.getFullYear();
+          
+          if(dde < 10) { dde = '0' + dde }
+          if(mme < 10) { mme = '0' + mme }
+          
+          $('#enddate').val(yyyye + '-' + mme + '-' + dde + 'T23:59:59');
+          
+          var dds = startdt.getDate();
+          var mms = startdt.getMonth()+1; //January is 0
+          var yyyys = startdt.getFullYear();
+          
+          if(dds < 10) { dds = '0' + dds }
+          if(mms < 10) { mms = '0' + mms }
+          
+          $('#startdate').val(yyyys + '-' + mms + '-' + dds + 'T00:00:00');
+        }
+
+    }
+    
+    Date.prototype.addDays = function(days) {
+        var date = new Date(this.valueOf());
+        date.setDate(date.getDate() + days);
+        return date;
+    }
+    
+
+    function fillFilters(result) {
+
+        data = JSON.parse($('<div/>').html(result).text());
+        
+        if (data.displayToggles == true)
+        {
+            $('#togglescontainer').show();
+        }
+        
+        if (data.displayButtons == true)
+        {
+            $('#filterbuttonscontainer').show();
+        }
+        
+        var filterHtml = '';
+        var toggleHtml = '';
+
+        var numFilters = data.filterList.length;
+        for (var ndx = 0; ndx < numFilters; ndx++)
+        {
+          var filter = data.filterList[ndx];
+          if (filter.id === undefined || filter.id == null)
+          {
+              filter.id = filter.name.replace(/[^\w]/gi, '').toLowerCase();
+          }
+          
+          // shim
+          if (filter.filter !== undefined && filter.filter != null && filter.filter != '')
+          {
+              var s = filter.filter.indexOf('\.');
+              if (filter.filters == null || filter.filters == undefined) { filter.filters = []; }
+              filter.filters.push({object_type:filter.filter.slice(0, s),field:filter.filter.slice(s + 1),operator:'in'});
+          }
+          var numFilterFilter = filter.filters.length;
+          var filterAttributesHtml = '';
+
+          if (filter.type != 'Recency')
+          {
+            for (var fndx = 0; fndx < numFilterFilter; fndx++)
+            {
+              var fEnt = filter.filters[fndx];
+              var obj = fEnt.object_type.replace('__c','').replace(/\_/g, '');
+              var operator = fEnt.operator === undefined || fEnt.operator == null ? 'in' : fEnt.operator;
+              filterAttributesHtml += obj + 'Field="' + fEnt.field + '" '
+                                      + obj + 'Operator="' + operator + '" ';
+            }
+          }
+
+          
+          if (['Record List', 'Picklist', 'Record Type', 'Manual', 'Recency'].indexOf(filter.type) >= 0)
+          {
+            var optionHtml = '';
+            var numEntries = filter.entries.length;
+            var hasDefault = false;
+            for (var ondx = 0; ondx < numEntries; ondx++)
+            {
+              filter.value = (filter.value == null ? '' : filter.value);
+              var isDefault = (filter.value.split(',').indexOf(filter.entries[ondx].value) > -1);
+              if (!hasDefault) { hasDefault = isDefault; }
+              optionHtml += '<option value="' + filter.entries[ondx].value + '" '
+                          + (isDefault ? 'selected="selected" ' : '')
+                          + 'onmouseover="showTooltip(tempX,tempY,$(this).text());" '
+                          + 'onmouseout="$(\'#tooltip\').remove();" '
+                          + '>'
+                          +   filter.entries[ondx].label
+                          + '</option>';
+            }
+
+            filterHtml += '<div id="' + filter.id + 'container" class="filterContainer">'
+                        +   '<p class="filtertitle">' + filter.name + '</p>'
+                        +   '<select id="' + filter.id + '" multiple="multiple" class="filter" size="15"'
+                        +   filterAttributesHtml
+                        +   '>'
+                        +     '<option value=" " ' + (hasDefault ? '' : 'selected="selected"') + '>All</option>'
+                        +     optionHtml
+                        +   '</select>'
+                        + '</div>';
+
+          }
+          else if (['Date', 'DateTime-Local', 'Text', 'Number'].indexOf(filter.type) >= 0)
+          {
+            filterHtml += '<div id="' + filter.id + 'container" class="filterContainer">'
+                        +   '<p class="filtertitle">' + filter.name + '</p>'
+                        +   '<input type="' + filter.type + '" step="1"' + filterAttributesHtml + ' id="' + filter.id + '" class="filter"></input>'
+                        + '</div>';
+          }
+          else if (['Toggle'].indexOf(filter.type) >= 0)
+          {
+            toggleHtml += '<label><input type="checkbox" id="' + filter.filter + '" class="filter"/>' + filter.name + '</label><br/>';
+          }
+          else if (['Header','Space'].indexOf(filter.type) >= 0)
+          {
+            filterHtml += '<div class="filterContainer"><p>&nbsp;</p></div>';
+          }
+        }
+
+        $('#filters').replaceWith(filterHtml);
+        $('#toggles').html(toggleHtml);
+
+        $('#inputs').find('select').each(function()
+        {
+            this.size = this.length;
+            if (this.size > 100) {
+                this.size = 25;
+                $(this).parent().find('p').html($(this).parent().find('p').html() + ' (Scrollable)');
+            }
+        });
+
+        $(".filtertitle").on('click', '', function() {
+
+            var children = $(this).parent().find("input, select, .innerContainer");
+            var tempwidth = $(this).parent().width();
+
+            for (var i = 0; i < children.length; i++) {
+                chld = children[i];
+
+                $(chld).slideToggle(200);
+
+                $('#offPage').html($(this).parent().html());
+                $('#offPage').children().css("position","static");
+                $('#offPage').children().css("width","auto");
+                $('#offPage').css("display","inline-block");
+
+                if ($('#offPage').width() > tempwidth) {
+                    tempwidth = $('#offPage').width();
+                }
+                $('#offPage').html('');
+
+                $(this).parent().css('width', tempwidth + 'px');
+                if ($(chld).is(':checkbox'))
+                {
+                    // leave alone
+                }
+                else
+                {
+                    $(chld).css('width', (tempwidth) + 'px'); // dont add 16, absolute position doesnt get cut off
+                }
+
+            }
+
+        });
+        $("input[type=checkbox]").on('change', '', rebuildReport);
+        $(".filter").on('dblclick', '', rebuildReport);
+        $(".filter").on('keydown','',function(event) {
+            if (event.keyCode == 13) {
+                rebuildReport();
+            }
+        });
+        $(".filter").on('change', '', function() {
+            filterChanged(this);
+        });
+
+        $('.filtertitle').trigger('click');
+
+        initializeFilters(' ');
+        defineFilters();
+    }
+
+    function defineFilters()
+    {
+        filters = {};
+        
+        startDtRaw = $("#startdate").val().replace(/T(\d{2}):(\d{2})$/,"T$1:$2:00");
+        startDt = startDtRaw.replace('T',' ');
+        sD = new Date(startDt);
+
+        endDtRaw = $("#enddate").val().replace(/T(\d{2}):(\d{2})$/,"T$1:$2:00");
+        endDt = endDtRaw.replace('T',' ');
+        eD = new Date(endDt);
+
+        sdD = new Date(sD - Math.round((eD - sD - 1)));
+        diffStartDt = sdD.getFullYear() + '-' + ((sdD.getMonth() + 1) <= 9 ? '0' : '') + (sdD.getMonth() + 1) + '-' + (sdD.getDate() <= 9 ? '0' : '') + sdD.getDate();
+        diffStartDtRaw = diffStartDt + 'T00:00:00Z';
+
+        edD = new Date(sD); // make new date equal to date before start...BECAUSE OF TIMEZONE
+        diffEndDt = edD.getFullYear() + '-' + ((edD.getMonth() + 1) <= 9 ? '0' : '') + (edD.getMonth() + 1) + '-' + (edD.getDate() <= 9 ? '0' : '') + edD.getDate();
+        diffEndDtRaw = diffEndDt + 'T23:59:59Z';
+        
+        filters.startDt = startDtRaw + 'Z';
+        filters.endDt = endDtRaw + 'Z';
+        filters.diffStartDt = diffStartDtRaw;
+        filters.diffEndDt = diffEndDtRaw;
+        
+        $(".filter").each(function() {
+          var $filter = $(this);
+          
+          if ($filter[0].nodeName != 'SELECT')
+          {
+              return;
+          }
+          var attrs = this.attributes;
+          $.each(attrs, function(ndx, a) {
+              if (a.name.indexOf('field') == -1)
+              {
+                  return;
+              }
+                            
+              var objectName = a.name.replace('field', '');
+              var filterName = objectName + 'Filter';
+              var fieldName = a.value;
+              
+              var operator = 'in';
+              if (attrs.getNamedItem(objectName + 'Operator') != null)
+              {
+                  operator = attrs.getNamedItem(objectName + 'Operator').value;
+              }
+
+              
+              if (filters[filterName] === undefined)
+              {
+                  filters[filterName] = '';
+              }
+              filters[filterName] += DefineInClause(
+                getSelect($filter.attr('id'), 'value'),
+                fieldName,
+                operator
+              );
+          });
+        });
+        
+        $("#toggles").find("input[type=checkbox]").each(function() {
+          var id = $(this).attr("id");
+          filters[id] = (document.getElementById(id) || {checked: false}).checked
+        });
+        
+        var dstr = 'Id != null'; // d for dummy
+        
+        for (var p in filters)
+        {
+            if (filters.hasOwnProperty(p))
+            {
+                // Translate booleans as strings to booleans
+                if (typeof filters[p] != 'string')
+                {
+                    continue;
+                }
+                
+                filters[p] = filters[p].replace(/\'true\'/g,'true').replace(/\'false\'/g,'false'); // ' single quote to fix syntax highlighting
+                
+                filters[p] = (filters[p] == "" 
+                               ? dstr 
+                               : (filters[p].substr(0, 5) == ' and ' || filters[p].substr(0, 4) == ' or ' 
+                                   ? dstr + filters[p] 
+                                   : filters[p]
+                                 )
+                             );
+            }
+        }
+        
+        return filters;
+    }
+
+    function getSelect(htmlElement, type)
+    {
+
+        if ($('#' + htmlElement).is("input")) {
+          return $('#' + htmlElement).val().replace(/\\/g,'\\\\');
+        }
+        result = '';
+        $('#' + htmlElement + ' option:selected').each(function(index, value) {
+            if (type == 'value') {
+                result = result + '|' + $(value).val();
+            } else if (type == 'text') {
+                result = result + ', ' + $(value).text();
+            } else {
+                result = result + '|' + $(value).val() + '=' + $(value).text();
+            }
+        });
+
+        if (result.length > 0) {
+            return result.substring(1);
+        } else {
+            return '';
+        }
+    }
+
+    function DefineInClause(lst, fld, op)
+    {
+      if ( (fld != '') && (fld != null) && (lst != '') && (lst != ' ') && (lst != null) ) {
+        if (lst == 'not blank')
+        {
+          return ' and (' + fld + ' != null and ' + fld + ' != \'\' and ' + fld + ' != \' \')';
+        }
+        else if (lst == 'is blank')
+        {
+          return ' and (' + fld + ' = null or ' + fld + ' = \'\' or ' + fld + ' = \' \')';
+        }
+        else if (lst == 'not null')
+        {
+          return ' and (' + fld + ' != null )';
+        }
+        else if (lst == 'is null')
+        {
+          return ' and (' + fld + ' = null )';
+        }
+        else if (op == 'variable')
+        {
+            return ' and (' + fld + lst + ')';
+        }
+        else
+        {
+          var items = lst.split('|');
+          var rstr = '(';
+          for (var i = 0; i < items.length; i++)
+          {
+            rstr = rstr + '\'' + items[i] + '\',';
+          }
+          
+          var flds = fld.split(',');
+          
+          var retval = ' and ( ';
+          for (var ndx = 0; ndx < flds.length; ndx++)
+          {
+              fld = flds[ndx].trim();
+              
+              if (ndx > 0)
+              {
+                  retval = retval + ' or ';
+              }
+              retval = retval + fld + ' ' + op + ' ' +     rstr.substring(0,rstr.length-1)/*.replace('`?`','')*/ + ')';
+          }
+          return retval + ' )';
+        }
+      }
+      return '';
+    }
+
+    function daysSince(dttime)
+    {
+        var datearr = dttime.split(' ')[0].split('-');
+        var dt =  new Date(datearr[0], datearr[1]-1, datearr[2]);
+        var today = new Date();
+        return Math.floor((today - dt)/(1000*60*60*24));
+    }
+
+    function printReport()
+    {
+        $("#inputs").hide();
+        curwidth = $("#report").width();
+        $("#report").width("100%");
+
+        $("#wrapper").css("width","8.5in");
+
+        setTimeout(function()
+        {
+          window.print();
+          location.reload();
+          //$("#wrapper").css("width","100%")
+          //$("#inputs").show();
+        }, 1000);
+    }
+
+    function clearAllFilters()
+    {
+        $('.filterContainer').find('input, select').each(function(ndx, elt) {
+            $e = $(elt);
+            if ($e.attr('type') == 'checkbox')
+            {
+                $e.attr('checked', false);
+            }
+            else if ($e.attr('type') == 'text')
+            {
+                $(elt).val('');
+            }
+            else if ($e.is('select'))
+            {
+                $(elt).find('option').prop('selected', false);
+                $(elt).find(':nth-child(1)').prop('selected', true);
+            }
+            setFilterStyle(elt);
+        });
+        setURLfromFilters();
+        rebuildReport(false);
+    }
+
+    function printTable(htmlElement)
+    {
+
+      $("#wrapper div").addClass("permanentHide");
+      $("#wrapper p").addClass("permanentHide");
+
+      $('body').prepend($(htmlElement));
+      $("htmlElement").css("width", "100%");
+      $(htmlElement).parents().removeClass("permanentHide");
+      $(htmlElement).find('*').removeClass("permanentHide");
+      $(htmlElement).removeClass("permanentHide");
+
+      setTimeout(function() {
+        $(htmlElement).find("canvas").each(function (index) {
+          $(this).replaceWith($('<img src="' + $(this)[0].toDataURL('image/png') + '">'));
+        });
+
+        setTimeout(function() {
+          window.print();
+          location.reload();
+        }, 1000);
+      }, 0);
+    }
+
+    function pngChart(htmlElement)
+    {
+
+      var canvas = $(htmlElement).find('.flot-base')[0];
+
+      var data = atob( canvas.toDataURL('image/png').substring( "data:image/png;base64,".length ) ),
+          asArray = new Uint8Array(data.length);
+
+      for( var i = 0, len = data.length; i < len; ++i ) {
+          asArray[i] = data.charCodeAt(i);
+      }
+
+      var blobdata = new Blob( [ asArray.buffer ], {type: "image/png"} );
+      var link = document.createElement("a");
+      link.setAttribute("href", window.URL.createObjectURL(blobdata));
+      link.setAttribute("download", htmlElement + ".png");
+      link.click();
+
+    }
+
+    function csvTable(htmlElement)
+    {
+      var csvContent = "";
+      $(htmlElement +" tr").each(function() {
+        var tableData = $(this).find('th, td');
+        if (tableData.length > 0) {
+          tableData.each(function() {
+            csvContent = csvContent + '"' + $(this).text().replace(RegExp(String.fromCharCode(160), "g"),"  ") + '",';
+          });
+          csvContent += '\n';
+        }
+      });
+      var blobdata = new Blob([csvContent],{type : 'text/csv'});
+      var link = document.createElement("a");
+      link.setAttribute("href", window.URL.createObjectURL(blobdata));
+      link.setAttribute("download", htmlElement + ".csv");
+      link.click();
+    }
+</script>
+
+<script id="pageFunctions" type="text/javascript">
+
+    function openLink(event, url)
+    {
+            if (event.preventDefault)
+            {
+                event.preventDefault();
+            }
+            if (sforce.console.isInConsole())
+            {
+                sforce.console.openPrimaryTab(null, url, true);
+            }
+            else
+            {
+                window.open(url, '_blank');
+            }
+            return false;
+    }
+
+    if (!String.prototype.formatA)
+    {
+      String.prototype.formatA = function()
+      {
+        var args = arguments[0];
+        var fieldArr = arguments[1];
+        var hasFields = (fieldArr !== undefined);
+        
+        var s = this.replace(/{(\d+)}/g, function(match, number) 
+        {
+          return typeof args[number] != 'undefined'
+            ? args[number]
+            : match
+          ;
+        });
+        s = s.replace(/{(\d+)\|(\d+)}/g, function(match, first, second) 
+        {
+          var retVal = match;
+          if (args[first] != 'undefined' && args[first] != '')
+          {
+              retVal = (hasFields && (fieldArr[first] == 'htmlbody' || fieldArr[first] == 'textbody')) ? parseEmail(args[first], fieldArr[first]) : args[first];
+          }
+          else if (args[second] != 'undefined' && args[second] != '')
+          {
+              retVal = (hasFields && (fieldArr[second] == 'htmlbody' || fieldArr[second] == 'textbody')) ? parseEmail(args[second], fieldArr[second]) : args[second];
+          }
+          return retVal;
+        });
+        return s;
+      };
+    }
+
+    function parseEmail(html, type)
+    {
+        if (type == 'textbody')
+        {
+            var parser = planerGenerator();
+            html = parser.extractFromPlain(html);
+            return html;//.replace(/\'/g,'\&apos;').replace(/\"/g,'&quot;'); // '" Comment added for syntax highlighting
+        }
+        else
+        {
+            var parser = planerGenerator();
+            html = parser.extractFromHtml(html, window.document);
+            return html;//.replace(/\'/g,'\&apos;').replace(/\"/g,'&quot;'); // '" Comment added for syntax highlighting
+        }
+    }
+    
+    mergeObjects = function(obj1, obj2)
+    {
+      if (obj2.constructor === Array)
+      {
+          var objA = [];
+          obj2.forEach(function(o) {
+              objA.push(mergeObjects(obj1, o));
+          });
+          return objA;
+      }
+      else
+      {
+          var objR = {};
+          for (var attrname in obj1) { objR[attrname] = obj1[attrname]; }
+          for (var attrname in obj2) { objR[attrname] = obj2[attrname]; }
+          return objR;
+      }
+    };
+
+    duplicateObjects = function(obj1, obj2) {
+      var obj3 = {};
+      for (var attrname in obj1) { obj3[attrname] = obj1[attrname]; }
+      for (var attrname in obj2) { obj3[attrname] = obj2[attrname]; }
+      return obj3;
+    };
+
+    if (!Array.prototype.unique)
+    {
+      Array.prototype.unique = function() {
+        var unique = [];
+        for (var i = 0; i < this.length; i++) {
+            if (unique.indexOf(this[i]) == -1) {
+                unique.push(this[i]);
+            }
+        }
+        return unique;
+      }
+    }
+
+    //if (!Array.prototype.zip)
+    //{
+      Array.prototype.zip = function(b) {
+        var a = [];
+        this.forEach( function(x, i) {
+          if (x.constructor === Array)
+          {
+            x.push(i >= b.length ? b[b.length - 1] : b[i]);
+            a.push(x);
+          }
+          else
+          {
+            a.push([x, i >= b.length ? b[b.length - 1] : b[i]]);
+          }
+        });
+        return a;
+      }
+    //}
+
+    if (!Array.prototype.indexArray)
+    {
+      Array.prototype.indexArray = function() {
+        return Array.apply(null, {length: this.length}).map(Number.call, Number)
+      }
+    }
+
+    // Get URL parameters
+    function getFiltersFromURL() {
+        params = getLocationParamsAsObject();
+
+        for (field in params)
+        {
+            var $f = $("#" + field);
+            if ((field == "startdate") || (field == "enddate"))
+            {
+              $f.val(params[field]);
+              $("#recency").val(" ");
+            }
+            else if ($("#" + field).prop("tagName").toLowerCase() == 'input' && $("#" + field).prop("type").toLowerCase() == 'checkbox')
+            {
+              $f.prop("checked", params[field]);
+            }
+            else if ($("#" + field).prop("tagName").toLowerCase() == 'input' && $("#" + field).prop("type").toLowerCase() == 'text')
+            {
+              $f.prop("value", params[field]);
+            }
+            else
+            {
+              if ($("#" + field + " option[value='" + params[field] + "']").length !== 0)
+              {
+                  $f.val(params[field]);
+              }
+              else
+              {
+                  $f.append(new Option("Custom",params[field]));
+                  $f.val(params[field]);
+              }
+            }
+            setFilterStyle($f);
+        }
+    }
+
+    // Read URL parameters
+    function setURLfromFilters() {
+        newURL = location.pathname.substring(1).split('/')[1] + '?';
+
+        $('.filter').each(function () {
+            if (this.type == "checkbox")
+            {
+              objVal = $("#" + this.id).is(':checked');
+            }
+            else if (this.type == "datetime-local")
+            {
+              objVal = $("#" + this.id).val().replace(/T(\d{2}):(\d{2})$/,"T$1:$2:00");
+            }
+            else
+            {
+              objVal = $("#" + this.id).val();
+            }
+
+            if (
+              ( ((this.id == "startdate") || (this.id == "enddate")) && $("#recency").val() == " ")
+                ||
+              ( (this.id != "startdate") && (this.id != "enddate") )
+            ) {
+              if ( (objVal != ' ') && (objVal != '') && (objVal != null) ) {
+                  newURL = newURL + '&' + this.id + '=' + objVal;
+              }
+            }
+        });
+        newURL = newURL.replace('?&','?');
+        if (window.self == window.top) {
+            // Consider using a replaceState instead
+            history.replaceState(
+                {dummyKey: "dummyValue"},
+                document.title,
+                newURL
+            );
+        }
+        else
+        {
+            return newURL;
+        }
+    }
+
+    // Convert URL to object
+    function getLocationParamsAsObject() {
+
+        var i, j, k, a, n, v, t, o = {},
+            ucStr = window.location.search.replace(/^\?/, ""),
+            paramSeparator = "&",
+            nameValueSeparator = "=",
+            params = ucStr.split(paramSeparator);
+
+        if (ucStr) {
+
+            for (i = 0, j = params.length; i < j; i += 1) {
+                a = params[i].split(nameValueSeparator);
+                n = decodeURIComponent(a[0] || "");
+                v = decodeURIComponent(a[1] || "");
+
+                if (v.indexOf(",") > 0) {
+                    v = v.split(',');
+                } else if (v.match(/^0$|^[1-9]\d*$/)) {
+                    v = parseInt(v, 10);
+                } else if (v === "-1") {
+                    v = -1;
+                }
+                if (o[n] === undefined) {
+                    o[n] = v;
+                } else {
+                    if (typeof o[n] !== "object") {
+                        t = o[n];
+                        o[n] = [];
+                        o[n].push(t);
+                    }
+                    o[n].push(v);
+                }
+            }
+        }
+        return o;
+    }
+
+    function showTooltip(x, y, contents) {
+      $('<div id="tooltip">' + contents + '</div>').css( {
+        position: 'absolute',
+        display: 'none',
+        top: y + 10,
+        left: x + 10,
+        padding: '2px',
+        border: '1px solid #ccc',
+        'background-color': '#000',
+        'color':'#fff',
+        'z-index':10000,
+        opacity: 0.80,
+        'white-space': 'nowrap'
+      }).appendTo("body").fadeIn(200);
+    }
+
+    function showHoverContainer(htmlElement, myid) {
+      $(htmlElement).css({
+        display: 'block',
+        top: $(myid).position().top,
+        left: $(myid).position().left + $(myid).width() - $(htmlElement).width(),
+        position: 'absolute'
+      });
+    }
+
+    function hideHoverContainer(htmlElement) {
+      $(htmlElement).css({display:'none'});
+    }
+
+    function goToByScroll(id){
+        $('html,body').animate({scrollTop: $(id).offset().top},'slow');
+        $('#wrapper').animate({scrollTop: $(id).offset().top},'slow');
+    }
+
+    function addControl(reportInput)
+    {
+      var chtml = '';
+      if (reportInput.constructor === Array) { reportInput = reportInput[0]; }
+      if (reportInput.constructor === Array) { reportInput = reportInput[0]; }
+      chtml = '<div id="{0}OuterContainer" class="controlOuterContainer">'
+            + '  <div id="{0}header" class="controlTitle">'
+            + '    <span>{3}</span>'
+            + (['directional', 'calendar', 'map'].indexOf(reportInput.controlType) == -1 ? ''
+            + '    <span id="{0}display" class="buttondisplay" onmouseover="showHoverContainer(\'#{0}buttons\',\'#{0}display\');">&nbsp;</span>'
+            : '' )
+            + '  </div>'
+            + (['directional', 'calendar', 'map'].indexOf(reportInput.controlType) == -1 ? ''
+            + '  <div id="{0}buttons" class="controlButtons" onmouseout="if(mOut(this)){hideHoverContainer(\'#{0}buttons\');}">'
+            + '    <button id="print{0}" class="exportButton" onclick="printTable(\'#{0}OuterContainer\');">Print Chart</button>'
+            + '    <br/>'
+            + '    <button id="export{0}" class="exportButton" onclick="pngChart(\'#{0}\');">Export PNG</button>'
+            + (reportInput.controlType == 'grid' ? ''
+            + '    <br/>'
+            + '    <button id="rebuild{0}" class="exportButton" {1}="button" onclick="refreshTable(\'#{0}\');">Reset Columns</button>'
+            : '' )
+            + '  </div>'
+            : '' )
+
+            + (reportInput.controlType != 'grid' ? ''
+            + '  <div id="{0}container" class="container">'
+            + '    <div class="{1}scalar"></div>'
+            + (reportInput.controlType == 'map' ? ''
+            + '      <input id="{0}search" class="{1}input" />'
+            : '' )
+            + '    <div id="{0}" class="fillcontainer" controlObject="{2}"></div>'
+            : '  <div id="{0}container" class="metricsContainer container">'
+            + '    <table id="{0}" class="gridcontainer drillDownList"></table>'
+              )
+            + '  </div>';
+      if (reportInput.legendPosition != undefined && reportInput.legendPosition != '')
+      {
+        chtml = chtml
+            + '  <div class="container">'
+            + '    <div class="legendscalar"></div>'
+            + '    <div id="{0}legendcontainer" class="fillcontainer"></div>'
+            + '  </div>'
+      }
+      chtml = chtml
+            + '</div>';
+      chtml = chtml
+          .replace(/\{0\}/g, reportInput.htmlElement.replace('#',''))
+          .replace(/\{1\}/g, reportInput.controlType)
+          .replace(/\{2\}/g, JSON.stringify(reportInput).replace(/"/g, '&quot;'))
+          .replace(/\{3\}/g, (reportInput.title === undefined || reportInput.title == null ? reportInput.label : reportInput.title));
+      return chtml;
+    }
+
+    var timer, num = 0;
+    function annotateTable(htmlElement) {
+
+      $(htmlElement + " th").on("click", function() {
+        // Define delay between clicks
+        if(num % 2 === 0) {
+            timer = (new Date()).getTime();
+        }
+        setTimeout(function() {num = 0;}, 500);
+        num++;
+      }).on("dblclick", function() {
+        // Control delay...only run dblclick if it was fast
+        var time2 = (new Date()).getTime();
+        if ( (time2 - timer) > 200 ) {
+          return;
+        }
+
+        $(
+          '#' + $(this).parents().eq(2).attr("Id")
+          + ' td:nth-child(' + ($(this).parent().children().index($(this))  + 1) + ')'
+        ).hide();
+        $(
+          '#' + $(this).parents().eq(2).attr("Id")
+          + ' th:nth-child(' + ($(this).parent().children().index($(this))  + 1) + ')'
+        ).hide();
+      });
+      $(htmlElement + " th").on("mouseover", function() {
+        showTooltip(tempX+5,tempY+5,
+          'Click to sort, double-click to hide.<br/>'
+          + 'Hold shift key to sort by multiple columns.<br/>'
+          + 'Hiding sorts by column first.');
+      });
+
+      $(htmlElement + " th").on("mouseout", function() {
+        $('#tooltip').remove();
+      });
+
+      $(htmlElement).tablesorter();
+
+      $(htmlElement + "outercontainer").css('visibility', 'visible');
+      $(htmlElement + "container").css('visibility', 'visible');
+      $(htmlElement + "header").css('visibility', 'visible');
+
+
+      $(htmlElement + "header span").on("mouseover", function(){showTooltip(tempX, tempY, 'Click to hide table');});
+      $(htmlElement + "header span").on("mouseout", function(){$('#tooltip').remove();});
+      $(htmlElement + "header span").on("click", function(){cleartable(htmlElement);});
+    }
+
+    function cleartable(htmlElement) {
+      $(htmlElement + "outercontainer").css('visibility', 'hidden');
+      $(htmlElement + "container").css('visibility', 'hidden');
+      $(htmlElement + "header").css('visibility', 'hidden');
+      $(htmlElement).html('');
+    }
+
+    function refreshTable(htmlElement){
+      $(htmlElement + ' th').show();
+      $(htmlElement + ' td').show();
+    }
+
+    //var cntr = 0;
+    var REPORTFILTERJSON;
+    var USEHORIZONTALFILTERS;
+    
+    $(document).ready(function() {
+        //cntr=0;
+
+        if (window.self == window.top) {
+            $("body").css("overflow","auto");
+        }
+
+        if($('#inputs').is(':visible')) {
+
+            if (USEHORIZONTALFILTERS) {
+                $(".filterContainer").css("display", "inline-block");
+                $(".filterContainer").css("float", "left");
+                $(".filterContainer").css("margin", "5px");
+                $(".filtertitle").css("borderTopWidth", "0px");
+                $(".filter").css("position","absolute");
+            }
+
+            x3st_reports.Reporting.InitializeFilters(JSON.stringify(REPORTFILTERJSON), fillFilters);
+
+        }
+
+        window.setTimeout(function() {
+            amIReady(0)
+        }, 250);
+
+    });
+
+    function amIReady(callCnt)
+    {
+
+        if (callCnt > 100)
+        {
+            alert("We're having some serious trouble rendering this report right now. Try again later.");
+            return;
+        }
+
+        if ($('#filters').length == 1)
+        {
+            window.setTimeout(function() {
+                amIReady(callCnt++);
+            }, 250);
+        }
+        else
+        {
+            genReport('Init');
+        }
+    }
+
+    function filterChanged(elt)
+    {
+        if (window.self == window.top) {
+            setURLfromFilters();
+        }
+        if ( (elt.id == "startdate") || (elt.id == "enddate") ) {
+          initializeFilters('datechange');
+          setFilterStyle($('#recency'));
+        } else {
+          initializeFilters(' ');
+        }
+        setFilterStyle(elt);
+        defineFilters();
+    }
+    function setFilterStyle(e)
+    {
+        if (e instanceof jQuery)
+        {
+            $e = e;
+        }
+        else
+        {
+            $e = $(e);
+        }
+
+        var $ps = null;
+        var isblank = false;
+        var checked = false;
+
+        // Do not apply below logic to checkbox container
+        if ($e.find('input[type=checkbox]').length > 0) { return; }
+
+        if ($e.attr('type') == "checkbox")
+        {
+            $ps = $e.parent().parent().parent().find('p');
+            $e.parent().parent().find('input[type=checkbox]').each(function(ndx, elt) { if ($(elt).is(':checked')) { checked = true; } });
+            isblank = !$e.is(':checked');
+        }
+        else
+        {
+            $ps = $e.parent().find('p');
+            isblank = $e.val() === undefined || $e.val() === null|| $e.val() == ' ' || $e.val() == '';
+        }
+
+        if (isblank && !checked)
+        {
+            $ps.each(function(ndx, elt) { $(elt).removeClass('selected'); })
+        }
+        else
+        {
+            $ps.each(function(ndx, elt) { if (!$(elt).hasClass('selected')) { $(elt).addClass('selected'); } })
+        }
+    }
+
+    function rebuildReport(generateReport)
+    {
+        $('body').find('.fillcontainer, .gridcontainer').each(function(i, e){ $(e).empty(); });
+        if (generateReport || generateReport === undefined)
+        {
+            genReport('');
+        }
+    }
+
+    // Define functions that improve onmouseover onmouseout behavior
+    document.onmousemove = getMouseXY;
+    var tempX = 0,tempY = 0;
+    function getMouseXY(e) {
+        tempX = e.pageX;
+        tempY = e.pageY;
+
+        return true;
+    }
+    function mOver(src) {
+      if (!window.event) { return true; }
+      var event = window.event, from = event.fromElement, to = event.toElement;
+      return (to === src || src.contains(to)) && !src.contains(from) && src !== from;
+    }
+    function mOut(src) {
+      if (!window.event) { return true; }
+      var event = window.event, from = event.fromElement, to = event.toElement;
+      return (src === from || src.contains(from)) && !src.contains(to) && src !== to;
+    }
+
+    function openMe()
+    {
+        //if (sforce.console.isInConsole())
+        //{
+          window.open(setURLfromFilters(), '_blank');
+        //}
+    }
+</script>
+
+</apex:component>

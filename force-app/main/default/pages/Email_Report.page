@@ -1,0 +1,1268 @@
+<apex:page standardController="Account" extensions="Reporting" showHeader="false" sideBar="false" standardStylesheets="False">
+    <head>
+        <title>Email Report</title>
+        <base target="_parent" />
+        <link href="https://fonts.googleapis.com/css?family=Nunito" rel="stylesheet"/>
+        <script type="text/javascript">
+
+            var useHorizontalFilters = false;
+
+            REPORTFILTERJSON = {displayToggles:true,displayButtons:true,
+            filterList: [{
+              name: 'Start Date',
+              type: 'DateTime-Local',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filter: 'Case.CreatedDate',
+              whereClause: ''
+            },{
+              name: 'End Date',
+              type: 'DateTime-Local',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filter: 'Case.CreatedDate',
+              whereClause: ''
+            },{
+              name: 'Recency',
+              type: 'Recency',
+              object_type: '',
+              value: '29',
+              label: '',
+              order: '',
+              filter: 'Case.CreatedDate',
+              whereClause: '',
+              entries: [
+                          {value:'0',label:'Today'}
+                        , {value:'1',label:'Two Days'}
+                        , {value:'6',label:'One Week'}
+                        , {value:'13',label:'Two Weeks'}
+                        , {value:'29',label:'30 Days'}
+                        , {value:'89',label:'90 Days'}
+                        , {value:'179',label:'180 Days'}
+                        , {value:'359',label:'360 Days'}
+                        ]
+            },{
+              // Incomplete representation - this does not chain the names together. Do I care?
+              name: 'Account Name',
+              id: 'accounts',
+              type: 'Record List',
+              object_type: 'Account',
+              value: 'Id',
+              label: 'Name',
+              order: 'Name',
+              filters: [
+                {object_type:'Account', field:'Id'},
+                {object_type:'Case', field:'AccountId'},
+                {object_type:'Task', field:'What.AccountId'},
+                {object_type:'Email', field:'Account__c'}
+              ],
+              whereClause:  '(Type = \'Customer\' OR Type = \'Client\')'
+            },{
+              name: 'Record Owner',
+              id: 'owner',
+              type: 'Record List',
+              object_type: 'User',
+              value: 'Id',
+              label: 'Name',
+              order: 'Name',
+              filters: [
+                {object_type:'Case', field:'OwnerId'},
+                //{object_type:'Task', field:'Related_Case__r.OwnerId'},
+                {object_type:'Email', field:'Parent.OwnerId'}
+              ],
+              whereClause: 'IsActive = true '
+                          + '  AND Profile.Name != \'System Administrator\''
+                          + '  AND Profile.Name != \'Salesforce Administrator\''
+                          + '  AND (NOT Profile.Name LIKE \'%Community%\')'
+                          + '  AND UserRole.Name != \'\''
+            },{
+              name: 'Case Status',
+              id: 'status',
+              type: 'Picklist',
+              object_type: 'Case',
+              value: 'Status',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'Status'},
+                //{object_type:'Task', field:'Related_Case__r.Status'},
+                {object_type:'Email', field:'Parent.Status'}
+              ]
+            },{
+              name: 'Case Reason',
+              type: 'Picklist',
+              object_type: 'Case',
+              value: 'Reason',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'Reason'},
+                //{object_type:'Task', field:'Related_Case__r.Reason'},
+                {object_type:'Email', field:'Parent.Reason'}
+              ]
+            },{
+              name: 'Case Record Type',
+              type: 'Record Type',
+              object_type: 'Case',
+              value: '',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'RecordTypeId'},
+                //{object_type:'Task', field:'Related_Case__r.RecordTypeId'},
+                {object_type:'Email', field:'Parent.RecordTypeId'}
+              ]
+            },{
+              name: 'Case Type',
+              type: 'Picklist',
+              object_type: 'Case',
+              value: 'Type',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'Type'},
+                //{object_type:'Task', field:'Related_Case__r.Type'},
+                {object_type:'Email', field:'Parent.Type'}
+              ]
+            },{
+              name: 'Case Opened/Closed',
+              id: 'state',
+              type: 'Manual',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'IsClosed'},
+                //{object_type:'Task', field:'Related_Case__r.IsClosed'},
+                {object_type:'Email', field:'Parent.IsClosed'}
+              ],
+              entries: [
+                          {value:'false', label:'Open'}
+                        , {value:'true', label:'Closed'}
+                        ]
+            },{
+              name: 'Case Parent/Child Type',
+              id: 'parentcase',
+              type: 'Manual',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'ParentId'},
+                //{object_type:'Task', field:'Related_Case__r.ParentId'},
+                {object_type:'Email', field:'Parent.ParentId'}
+              ],
+              entries: [
+                          {value:'is null', label:'Parent Only'}
+                        , {value:'not null', label:'Child Only'}
+                        ]
+            },{
+              name: 'Show Beta/Standby/Removed Cases',
+              type: 'Toggle',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filter: 'gimmeAll'
+            },{
+              name: 'Time Filter Everything',
+              type: 'Toggle',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filter: 'getRetro'
+            }]};
+
+            function genReport(result)
+            {
+
+                if (result == 'Init')
+                {
+                  if (sforce.console.isInConsole())
+                  {
+                    $("#caserecordtype").val("012360000012GS6AAM");
+                  }
+                  else
+                  {
+                      $("#openMe").hide();
+                  }
+                }
+
+                var filters = defineFilters();
+                
+                if (filters.getRetro) {
+                  filters.closeFilter = ' and CreatedDate >=' + filters.startDt + ' and CreatedDate <= ' + filters.endDt;
+                } else {
+                  filters.closeFilter = ' and IsClosed = false ';
+                }
+
+                if (filters.gimmeAll)
+                {
+                  filters.caseExtendedFilter = ' ';
+                }
+                else
+                {
+                  filters.caseExtendedFilter = ' and (NOT Account.Name like \'Test%\') and Status != \'Could Not Fulfill\'';
+                }
+                filters.modifiedCaseFilter = filters.caseFilter.replace(' and IsClosed in (false)', '');
+
+                var dts = filters.startDt;
+                var dte = filters.endDt;
+                var dtds = filters.diffStartDt;
+                var dtde = filters.diffEndDt;
+                var baseWhere = filters.modifiedCaseFilter + filters.caseExtendedFilter;
+                var openWhere = ' and CreatedDate >=' + dts + ' and CreatedDate <= ' + dte + '';
+                var closeWhere = ' and ClosedDate >= ' + dts + ' and ClosedDate <= ' + dte + '';
+                var taskCloseWhere = ' and LastModifiedDate >= ' + dts + ' and LastModifiedDate <= ' + dte + ' and Status = \'Completed\'';
+                var openDiffWhere = ' and CreatedDate >= ' + dtds + ' and CreatedDate <= ' + dtde + '';
+                var closeDiffWhere = ' and ClosedDate >= ' + dtds + ' and ClosedDate <= ' + dtde + '';
+                var taskCloseDiffWhere = ' and LastModifiedDate >= ' + dtds + ' and LastModifiedDate <= ' + dtde + ' and Status = \'Completed\'';
+
+                var reportInput = {
+                    objType: 'EmailMessage',
+                    startDatestr: filters.startDt,
+                    endDatestr: filters.endDt,
+                    lowerThreshold: '0.01',
+                    comparisonOperator: '=',
+                    aggregateFunction: 'COUNT',
+                    chartType: 'integer',
+                    whereClause: filters.modifiedCaseFilter + filters.closeFilter + filters.caseExtendedFilter
+                };
+
+
+                var widgets = []; // left, top, height, width, reportInput
+
+                widgets = widgets.concat([
+                {
+                    left:0,top:0,height:1,width:1,
+                    inputs:mergeObjects(reportInput,{
+                        htmlElement: '#emails',
+                        label: 'Emails',
+                        controlType: 'list',
+                        listHeaders: [''],//['HTML Email'],
+                        listFormat: '<td style="font-family:\'Nunito\',sans-serif;font-size:13px;font-weight:bold;padding:10px;">'
+                                  
+                                  + '<span style="float:left;">'
+                                      + '<span class="feeditemusercontainer">'
+                                          + '<img title="{2}" src="/img/support/caseinteraction/eventcustomer45.png" class="nonprofileimage feeditemusericon">'
+                                          + '<span class="feeditemtypeiconcontainer background-EmailMessageEvent">'
+                                              + '<span class="feeditemtypeicon icon-EmailMessageEvent"></span>'
+                                          + '</span>'
+                                      + '</span>'
+                                  + '</span>'
+                                  + '<span style="margin-left:15px;float:left;">'
+                                      + '<span>{1} sent <a href=\'/{0}\' onclick="openLink(event,\'/{0}\')">this email</a></span>'
+                                      + '<span> on {8}</span>'
+                                      + '<br/>'
+                                      + '<span>to {3} regarding case <a href=\'/{4}\' onclick="openLink(event, \'/{4}\')">{5}</a></span>'
+                                  + '</span>'                                  
+                                  + ' <iframe style="border:none;margin-left:15px;" height=\'300px\' width=\'100%\' srcdoc=\'{6|7}\'></iframe>'
+                                  + ' </td>',
+                        selectClause: 'Id,FromName,FromAddress,ToAddress,ParentId,Parent.CaseNumber,HtmlBody,TextBody,FORMAT(MessageDate) MessageDate',
+                        chartType: 'email',
+                        whereClause: ' Id != null' //filters.emailFilter + openWhere + ' AND Positive_Feedback__c = true'
+                    })
+                }]);
+
+                RenderWidgets(widgets);
+            }
+        </script>
+        
+        <style>
+            /* * This code is for Internal Salesforce use only, and subject to change without notice. * Customers shouldn't reference this file in any web pages. */
+            .comboMenu.feedsupermenu{
+                padding-bottom:0
+            }
+            .feeditem{
+                position:relative;
+                min-height:34px;
+                white-space:normal;
+                word-wrap:normal;
+                margin:0;
+                padding:8px 4px 8px 9px;
+                border-top:1px solid #d8d8d8;
+                border-bottom:1px solid #d8d8d8
+            }
+            .feeditem:focus{
+                outline:none
+            }
+            .feeditem ~ .feeditem{
+                border-top:none
+            }
+            .feeditem.collapsed{
+                cursor:pointer
+            }
+            .focusIndicator{
+                position:absolute;
+                display:none;
+                background-color:#2a94d6;
+                height:42px;
+                width:2px;
+                top:4px;
+                left:0
+            }
+            .feeditem:focus .focusIndicator{
+                display:block
+            }
+            .feeditemcontent{
+                position:relative;
+                margin-left:46px
+            }
+            .feeditem.cxhover a:hover{
+                color:#015ba7
+            }
+            .feeditem.cxhover.collapsed{
+                background-color:#f5f6f9
+            }
+            .feeditem .externallyVisibleIndicator{
+                display:none
+            }
+            .entityFeed.highlightExternalItems .feeditem.externallyVisible .externallyVisibleIndicator{
+                display:inline-block;
+                font-size:12px;
+                vertical-align:middle
+            }
+            .entityFeed.highlightExternalItems .feeditem.externallyVisible .externallyVisibleIndicator:before{
+                content:"·";
+                color:#7d7d84;
+                margin-left:4px;
+                margin-right:5px
+            }
+            .entityFeed.highlightExternalItems .feeditem.externallyVisible .externallyVisibleIndicator:after{
+                content:"\e674";
+                color:#f5a623;
+                background-color:#fff;
+                border-radius:100%
+            }
+            .entityFeed.highlightExternalItems .feeditem.externallyVisible .externallyVisibleIndicator{
+                font-family:'compactfeedicons';
+                speak:none;
+                font-style:normal;
+                font-weight:normal;
+                font-variant:normal;
+                text-transform:none;
+                line-height:1;
+                -webkit-font-smoothing:antialiased;
+                -moz-osx-font-smoothing:grayscale
+            }
+            .feeditemusercontainer{
+                position:relative;
+                display:block
+            }
+            .chatter-avatar .chatter-avatarStyle,.compactLayout .chatter-avatar .chatter-avatarStyle{
+                display:none;
+                background-image:none
+            }
+            .feeditemusericon,.chatter-avatarRegular,.chatter-avatarMedium,.compactLayout .chatter-avatarRegular,.compactLayout .chatter-avatarMedium,.chatter-avatar .chatter-photo,.compactLayout .chatter-avatar .chatter-photo,.feeditemcommentphoto img{
+                height:34px;
+                width:34px;
+                border-radius:50%
+            }
+            .chatterHover .chatter-avatar .chatter-photo{
+                height:34px !important;
+                width:34px !important
+            }
+            .chatter-avatarRegular.chatter-externalIndicator,.chatter-avatarMedium.chatter-externalIndicator,.compactLayout .chatter-avatarRegular.chatter-externalIndicator,.compactLayout .chatter-avatarMedium.chatter-externalIndicator{
+                border-color:#f07e05 !important;
+                border-width:2px !important;
+                border-style:solid !important;
+                height:30px !important;
+                width:30px !important
+            }
+            .chatter-avatar.chatter-externalIndicator .chatter-photo,.compactLayout .chatter-avatar.chatter-externalIndicator .chatter-photo{
+                border-color:#fff !important;
+                border-width:1px !important;
+                border-style:solid !important;
+                height:28px !important;
+                width:28px !important
+            }
+            .chatter-avatarTiny .chatter-photo,.compactLayout .chatter-avatarTiny .chatter-photo{
+                height:18px;
+                width:18px
+            }
+            .chatter-avatarTiny.chatter-externalIndicator,.compactLayout .chatter-avatarTiny.chatter-externalIndicator{
+                border-color:#f07e05 !important;
+                border-width:1px !important;
+                border-style:solid !important;
+                height:16px !important;
+                width:16px !important;
+                border-radius:50%
+            }
+            .chatter-avatarTiny.chatter-externalIndicator .chatter-photo,.compactLayout .chatter-avatarTiny.chatter-externalIndicator .chatter-photo{
+                border-color:#fff !important;
+                border-width:1px !important;
+                border-style:solid !important;
+                height:14px !important;
+                width:14px !important
+            }
+            .customerfeeditem .nonprofileimageindicator{
+                z-index:1;
+                border-color:#f07e05;
+                border-width:2px;
+                border-style:solid;
+                border-radius:50%;
+                height:30px;
+                width:30px;
+                position:absolute;
+                top:0;
+                left:0
+            }
+            .customerfeeditem .feeditemusericon.nonprofileimage{
+                border-color:#fff;
+                border-width:3px;
+                border-style:solid;
+                height:28px;
+                width:28px
+            }
+            .feeditem .feeditemtypeiconcontainer{
+                display:none
+            }
+            .feeditemtypeiconcontainer{
+                display:block;
+                height:18px;
+                width:18px;
+                border-radius:50%;
+                background:#7c9cae;
+                border:2px solid #fff;
+                position:absolute;
+                text-align:center;
+                vertical-align:middle;
+                z-index:1;
+                top:20px;
+                left:25px;
+            }
+            .feeditemtypeicon{
+                font-size:10px;
+                color:#fff;
+                line-height:18px
+            }
+            .feeditem .feeditemsummaryheader{
+                display:none
+            }
+            .feeditem.collapsed .feeditemsummaryheader{
+                display:block;
+                padding-bottom:8px
+            }
+            .feeditemsummarywrapper{
+                display:block;
+                white-space:nowrap;
+                padding-top:10px;
+                line-height:16px;
+                padding-right:240px
+            }
+            .feeditem.collapsed .feeditemsummary{
+                max-width:100%;
+                display:inline-block;
+                white-space:nowrap;
+                overflow:hidden;
+                overflow:-moz-hidden-unscrollable;
+                text-overflow:ellipsis;
+                vertical-align:middle
+            }
+            .feeditem .feeditemsummary .feeditemactor{
+                display:inline
+            }
+            .feeditem .summarydescription{
+                display:inline
+            }
+            .summaryinfo{
+                font-size:.92em;
+                color:#7d7d84;
+                max-width:180px;
+                white-space:nowrap;
+                overflow:hidden;
+                overflow:-moz-hidden-unscrollable;
+                text-overflow:ellipsis;
+                position:absolute;
+                top:11px;
+                right:20px
+            }
+            .indicatoricon{
+                font-family:'compactfeedicons';
+                speak:none;
+                font-style:normal;
+                font-weight:normal;
+                font-variant:normal;
+                text-transform:none;
+                line-height:1;
+                -webkit-font-smoothing:antialiased;
+                -moz-osx-font-smoothing:grayscale;
+                color:#999;
+                vertical-align:middle;
+                display:inline-block;
+                text-align:right;
+                padding-right:3px
+            }
+            .summaryattachmenticon:before{
+                content:"\e629"
+            }
+            .socialpostalerticon:before{
+                content:"\e614"
+            }
+            .socialpostdeletedicon{
+                font-size:1.2em
+            }
+            .socialpostdeletedicon:before{
+                content:"\e675"
+            }
+            .summarycommentsicon{
+                vertical-align:middle;
+                display:inline-block;
+                text-align:right;
+                background-image:url(/img/chatter/sprites/sprite_images/chattersupersprite.png?v=194-2);
+                background-position:0 -422px;
+                width:16px;
+                height:16px
+            }
+            .feeditembodyandfooter{
+                position:static
+            }
+            .feeditem.collapsed .feeditembodyandfooter{
+                display:none
+            }
+            .actionsOnHoverEnabled .feeditembody{
+                padding-right:20px
+            }
+            .feeditem .preamblecontainer{
+                display:block;
+                cursor:pointer;
+                padding-top:12px;
+                padding-bottom:7px;
+                padding-right:210px;
+                padding-left:0
+            }
+            .feeditem span.unlinkedactor,.feeditem .feeditemfirstentity a,.feeditemfirstentity,.feeditem .actorentitylink{
+                color:black;
+                text-decoration:none;
+                font-weight:bold
+            }
+            .feeditemsummary .feeditemfirstentity,.preamblecontainer .actorentitylink{
+                padding-right:5px
+            }
+            .feeditembody .feeditemaux{
+                border:0 none #fff;
+                border-radius:0;
+                margin:0;
+                overflow:visible;
+                padding:0
+            }
+            .feeditembody .feeditemaux:after{
+                content:".";
+                visibility:hidden;
+                display:block;
+                height:0;
+                clear:both
+            }
+            .feeditemtopics{
+                padding-right:140px
+            }
+            .topics a,.actionsOnHoverEnabled .feeditem.cxhover .topics .editLink{
+                color:#888;
+                text-decoration:none
+            }
+            .topics a:hover,.actionsOnHoverEnabled .feeditem.cxhover .topics .editLink:hover{
+                color:#015ba7;
+                text-decoration:none
+            }
+            .topics{
+                width:100%;
+                float:left
+            }
+            .topics .highlight{
+                padding:0
+            }
+            .feeditem .feeditemfooter a{
+                color:#888;
+                text-decoration:none
+            }
+            .feeditem.cxhover .feeditemfooter a:hover{
+                text-decoration:none
+            }
+            .feeditemfooter{
+                color:#888;
+                margin:0;
+                padding:2px 0 0 0;
+                float:right;
+                padding-right:14px
+            }
+            .actionsOnHoverEnabled .feeditemfooter{
+                visibility:hidden
+            }
+            .actionsOnHoverEnabled .feeditembodyandfooter:hover .feeditemfooter{
+                visibility:visible
+            }
+            .feeditemfooter .feeditemtimestamp{
+                visibility:visible;
+                max-width:195px;
+                position:absolute;
+                top:11px;
+                line-height:16px;
+                right:35px
+            }
+            .cxallfeedactions .feeditemActionMenu{
+                position:absolute;
+                top:12px;
+                right:8px
+            }
+            .cxallfeedactions .bookmarked{
+                visibility:visible;
+                position:absolute;
+                top:11px;
+                right:1px
+            }
+            .feeditemlike{
+                padding:2px 0;
+                background:none;
+                border:none
+            }
+            .feeditemclientinfo{
+                display:none
+            }
+            .cxallfeedactions .feeditemActionMenu .zen-options,.feedcommentactions .commentActionMenu .zen-options{
+                border:1px solid #e2e2e2;
+                border-radius:0;
+                box-shadow:0 2px 4px rgba(0,0,0,.2);
+                right:0;
+                left:auto
+            }
+            .feedcommentactions{
+                text-align:right
+            }
+            .cxallfeedactions .zen-select .zen-trigger.feeditemActionMenuButton,.cxallfeedactions .zen-select .zen-trigger.commentActionMenuButton{
+                background:none;
+                border:1px solid #d2d2d2;
+                border-radius:1px;
+                box-shadow:none;
+                padding:4px 3px 4px 3px
+            }
+            .cxallfeedactions .zen-select .zen-trigger.feeditemActionMenuButton{
+                visibility:visible
+            }
+            .cxallfeedactions .zen-select .zen-trigger.feeditemActionMenuButton b{
+                background-image:url(/img/chatter/sprites/sprite_images/chattersupersprite.png?v=194-2);
+                background-position:0 -1735px;
+                width:5px;
+                height:3px
+            }
+            .cxallfeedactions .zen-select .zen-trigger.feeditemActionMenuButton:active,.cxallfeedactions .zen-select .zen-trigger.commentActionMenuButton:active,.cxallfeedactions .zen-select.zen-open .zen-trigger.feeditemActionMenuButton,.cxallfeedactions .zen-select.zen-open .zen-trigger.feeditemActionMenuButton{
+                background-color:#e2e2e2
+            }
+            .feeditem.collapsed .feeditemextras{
+                display:none
+            }
+            .feeditemextras{
+                margin:0;
+                padding:4px 0 0 0
+            }
+            .feeditemextras .cxlikecontainer{
+                text-align:right;
+                padding-right:17px
+            }
+            .feeditemcomments,.feeditemcomment,.feedcommentsshowmore,.feeditemcommentplaceholder{
+                background:none;
+                border:none
+            }
+            .feeditemcomment{
+                padding-top:2px;
+                padding-bottom:2px;
+                padding-left:6px;
+                padding-right:0
+            }
+            .cxcontentcommentactiontext{
+                color:#888
+            }
+            a:hover .cxcontentcommentactiontext{
+                color:#015ba7;
+                text-decoration:none
+            }
+            .feedcommentfooter{
+                margin:0;
+                padding-top:2px;
+                padding-bottom:0;
+                padding-left:0;
+                padding-right:14px;
+                text-align:right
+            }
+            .actionsOnHoverEnabled .feedcommentfooter{
+                visibility:hidden
+            }
+            .actionsOnHoverEnabled .feeditemcomment:hover .feedcommentfooter{
+                visibility:visible
+            }
+            .feeditem .feedcommentfooter a{
+                color:#888;
+                text-decoration:none
+            }
+            .feeditem.cxhover .feedcommentfooter a:hover{
+                text-decoration:none
+            }
+            .feedcommentfooter .feeditemtimestamp{
+                visibility:visible;
+                max-width:160px;
+                position:absolute;
+                top:6px;
+                right:18px
+            }
+            .cxallfeedactions .commentActionMenu{
+                position:absolute;
+                top:6px;
+                right:-6px
+            }
+            .feedcommentsshowmore{
+                padding:2px 0
+            }
+            .actionsOnHoverEnabled .commentDeleteLink{
+                top:4px;
+                right:-2px;
+                text-align:left
+            }
+            .actionsOnHoverEnabled .commentlike .small-like-icon,.actionsOnHoverEnabled .commentlike .liketext{
+                visibility:visible
+            }
+            .newCommentContainer{
+                border:none
+            }
+            .entityFeed.highlightExternalItems .feeditem.externallyVisible .newCommentContainer textarea.cxnewcommenttext{
+                border:1px solid #fe8b20
+            }
+            .fieldsDropDown .zen-select{
+                margin:0 3px
+            }
+            .fieldsDropDown .zen-trigger{
+                border:1px solid #d2d2d2;
+                padding:4px 3px 4px 3px;
+                border-radius:1px
+            }
+            .fieldsDropDown .zen-trigger:active,.fieldsDropDown .zen-open .zen-trigger{
+                background-color:#e2e2e2
+            }
+            .fieldsDropDown b{
+                display:block;
+                background-image:url(/img/chatter/sprites/sprite_images/chattersupersprite.png?v=194-2);
+                background-position:0 -1735px;
+                width:5px;
+                height:3px
+            }
+            .fieldsDropDown .zen-options{
+                border:1px solid #e2e2e2;
+                border-radius:0;
+                box-shadow:0 2px 4px rgba(0,0,0,.2);
+                overflow:auto;
+                margin-top:1px;
+                min-width:350px;
+                max-height:300px;
+                left:0;
+                right:auto
+            }
+            .fieldsDropDown .zen-line ~ .zen-line{
+                margin-top:5px
+            }
+            .fieldsDropDown .fieldsDropDownContent{
+                padding:8px
+            }
+            .fieldsDropDown .fieldsDropDownfieldLabel{
+                color:#888;
+                font-size:.80em;
+                font-weight:bold
+            }
+            .fieldsDropDown .fieldsDropDownDetails{
+                padding-top:8px
+            }
+            .fieldsDropDown .zen-options a,.fieldsDropDown .zen-options a:hover,.fieldsDropDown .zen-options a:focus,.fieldsDropDown .zen-options a:active{
+                color:#015ba7;
+                background:none;
+                text-decoration:none;
+                outline:none;
+                padding:0;
+                display:inline
+            }
+            .auxAllFeedItemActions{
+                margin-top:8px
+            }
+            .auxFeedItemAction{
+                display:inline;
+                margin-right:3px
+            }
+            .auxFeedItemAction ~ .auxFeedItemAction:before{
+                content:"·";
+                margin-right:3px
+            }
+            .auxFeedItemAction.hiddenAction ~ .auxFeedItemAction:before{
+                content:none
+            }
+            .auxFeedItemAction.hiddenAction{
+                display:none
+            }
+            .caseEventBody,.caseCommentEventBody,.caseCommentEventRow,.caseEventRow{
+                display:block;
+                margin:0
+            }
+            .caseEventRow p{
+                margin:0
+            }
+            .caseEventSeparator:before{
+                content:"·";
+                margin-right:3px
+            }
+            .caseEventBody .caseEventIcon,.caseCommentEventBody .replyEventIcon,.rsicon,.taskIcon,.caseCommentPostEventIcon,.caseCommentRemoveEventIcon{
+                display:none
+            }
+            .caseEventTitle,.caseEventTitle a{
+                font-weight:bold
+            }
+            .caseEventRow p.caseEventTitle{
+                margin-top:2px;
+                margin-bottom:8px
+            }
+            .caseEventAction,.caseCommentEventOriginalPostBy,.feeditemaux .taskInnerContent .taskDetails,.pollvotecount,.pollresultsrefreshlink,.pollviewtogglelink{
+                font-size:1em
+            }
+            .feeditemaux .emailMessageHeaderInfo{
+                padding:0 0 4px 0
+            }
+            .feeditemaux .emailMessageHeaderInfo .recipientsWrapper{
+                max-width:40%;
+                display:inline-block;
+                overflow:hidden;
+                white-space:nowrap;
+                overflow:-moz-hidden-unscrollable;
+                text-overflow:ellipsis
+            }
+            .feeditemaux .emailMessageHeaderInfo .recipients{
+                color:#888
+            }
+            .feeditemaux .emailMessageHeaderDropDown{
+                display:inline-block
+            }
+            .feeditemaux .emailMessageAttachments{
+                margin-top:10px;
+                margin-bottom:6px
+            }
+            .feeditemaux .emailMessageAttachment a{
+                margin-bottom:5px
+            }
+            .feeditemaux .socialpost{
+                background-image:none
+            }
+            .feeditemaux .socialpost,.linkPostLinkTitle .feeditemlinkpost{
+                padding-left:0
+            }
+            .linkPostLinkContainer .linkPostLink img{
+                display:none
+            }
+            .socialpost.twitter a,.feeditemaux .taskInnerContent .taskDetails a:link,.feeditemaux .pollresultsrefreshlink,.feeditemaux .pollviewtogglelink{
+                color:#015ba7
+            }
+            .caAttachToEmail.menuItem.visible.aaDisabledMenuItem{
+                display:none
+            }
+            .attachedArticleFeedItemActions .actionseparatingdot,.attachedExtDocFeedItemActions .actionseparatingdot{
+                display:none
+            }
+            .feeditemaux .rscontainer .rsbody{
+                margin-left:0;
+                padding-left:0
+            }
+            .rstitle a{
+                font-weight:bold
+            }
+            .bestAnswerBody{
+                margin-top:10px
+            }
+            .contentPost{
+                margin-top:4px
+            }
+            .contentPost .thumbnailCell{
+                vertical-align:middle;
+                padding-right:8px
+            }
+            .feeditemaux .icon{
+                padding-right:8px
+            }
+            .feeditemaux .linkedTitle a{
+                font-weight:bold
+            }
+            .feeditemaux .attachment .linkedTitle{
+                padding-top:8px
+            }
+            .feeditemaux .attachment .description{
+                margin-top:8px;
+                float:left
+            }
+            .contentPost img.contentThumbnail{
+                margin:0
+            }
+            .contentPost .rightSideCell{
+                vertical-align:middle;
+                padding:0
+            }
+            .contentActionMenu{
+                border-radius:0;
+                padding-left:10px;
+                padding-right:1px
+            }
+            .contentActionMenuItem{
+                padding:7px 10px
+            }
+            .contentActionMenuItem.hover{
+                border-radius:0;
+                -moz-border-radius:0;
+                -webkit-border-radius:0;
+                background-color:#ececec
+            }
+            .pollvotebutton{
+                border-radius:2px;
+                border-color:#c3c3c3;
+                background:#f7f7f7
+            }
+            .pollvotebutton:hover,.pollvotebutton:focus{
+                background:#f0f0f0
+            }
+            .actor-MilestoneEvent .feeditemtypeiconcontainer{
+                left:8px;
+                top:7px
+            }
+            .actor-MilestoneEvent .feeditemusericon{
+                visibility:hidden
+            }
+            .auto-CreateRecordEvent .feeditemtypeiconcontainer,.auto-EmailMessageEvent .feeditemtypeiconcontainer,.auto-TrackedChange .feeditemtypeiconcontainer{
+                left:8px;
+                top:7px
+            }
+            .auto-CreateRecordEvent .feeditemusericon,.auto-EmailMessageEvent .feeditemusericon,.auto-TrackedChange .feeditemusericon{
+                visibility:hidden
+            }
+            .feeditemtypeiconcontainer{
+                background:#ff9102
+            }
+            .feeditemtypeiconcontainer.background-EmailMessageEvent{
+                background:#95aec5
+            }
+            .feeditemtypeiconcontainer.background-TextPost,.feeditemtypeiconcontainer.background-AdvancedTextPost,.feeditemtypeiconcontainer.background-LinkPost{
+                background:#e6d478
+            }
+            .feeditemtypeiconcontainer.background-ContentPost{
+                background:#baac93
+            }
+            .feeditemtypeiconcontainer.background-CallLogPost{
+                background:#48c3cc
+            }
+            .feeditemtypeiconcontainer.background-MilestoneEvent{
+                background:#ff5454
+            }
+            .feeditemtypeiconcontainer.background-TrackedChange{
+                background:#7183cb
+            }
+            .feeditemtypeiconcontainer.background-ChangeStatusPost{
+                background:#ffb332
+            }
+            .feeditemtypeiconcontainer.background-CaseCommentPost{
+                background:#aec770
+            }
+            .feeditemtypeiconcontainer.background-PollPost{
+                background:#699be1
+            }
+            .feeditemtypeiconcontainer.background-ApprovalPost{
+                background:#50cc7a
+            }
+            .feeditemtypeiconcontainer.background-QuestionPost{
+                background:#f2cf5b
+            }
+            .feeditemtypeiconcontainer.background-Facebook{
+                background:#3b5998
+            }
+            .feeditemtypeiconcontainer.background-Twitter{
+                background:#5fa9dd
+            }
+            .feeditemtypeiconcontainer.background-GooglePlus{
+                background:#dd4b39
+            }
+            .feeditemtypeiconcontainer.background-SinaWeibo{
+                background:#47c3fd
+            }
+            .feeditemtypeiconcontainer.background-VKontakte{
+                background:#4d75a3
+            }
+            .feeditemtypeiconcontainer.background-WeChat{
+                background:#78ab34
+            }
+            .feeditemtypeiconcontainer.background-Pinterest{
+                background:#bd081c
+            }
+            .feeditemtypeiconcontainer.background-Line{
+                background:#00c300
+            }
+            .feeditemtypeiconcontainer.background-Instagram{
+                background:#2e5e86
+            }
+            .feeditemtypeiconcontainer.background-LinkedIn{
+                background:#007fb1
+            }
+            .feeditemtypeiconcontainer.background-WhatsApp{
+                background:#234343
+            }
+            .feeditemtypeiconcontainer.background-YouTube{
+                background:#e22b26
+            }
+            .feeditemtypeiconcontainer.background-ChatTranscriptPost{
+                background:#f67594
+            }
+            .feeditemtypeiconcontainer.background-CanvasPost{
+                background:#8199af
+            }
+            .feeditemtypeiconcontainer.background-ActivityEvent{
+                background:#7dc37d
+            }
+            .feeditemtypeiconcontainer.background-ReplyPost{
+                background:#ff9102
+            }
+            .feeditemtypeiconcontainer.background-AttachArticleEvent{
+                background:#3f44a4
+            }
+            .feeditemtypeiconcontainer.background-RypplePost{
+                background:#e9696e
+            }
+            @font-face{
+                font-family:'compactfeedicons';
+                src:url('/fonts/feed/compactfeedicons.eot');
+                src:url('/fonts/feed/compactfeedicons.eot?#iefix') format('embedded-opentype'),url('/fonts/feed/compactfeedicons.woff') format('woff'),url('/fonts/feed/compactfeedicons.ttf') format('truetype');
+                font-weight:normal;
+                font-style:normal
+            }
+            .feeditemtypeicon{
+                font-family:'compactfeedicons';
+                speak:none;
+                font-style:normal;
+                font-weight:normal;
+                font-variant:normal;
+                text-transform:none;
+                /*line-height:1;*/
+                -webkit-font-smoothing:antialiased;
+                -moz-osx-font-smoothing:grayscale
+            }
+            .feeditemtypeicon:before{
+                content:"\e639"
+            }
+            .feeditemtypeicon.icon-EmailMessageEvent:before{
+                content:"\e648"
+            }
+            .feeditemtypeicon.icon-AdvancedTextPost:before,.feeditemtypeicon.icon-LinkPost:before,.feeditemtypeicon.icon-TextPost:before{
+                content:"\e64f"
+            }
+            .feeditemtypeicon.icon-PrivateChat:before{
+                content:"\e65a"
+            }
+            .feeditemtypeicon.icon-Chat:before{
+                content:"\e63d"
+            }
+            .feeditemtypeicon.icon-CallLogPost:before{
+                content:"\e647"
+            }
+            .feeditemtypeicon.icon-MilestoneEvent:before{
+                content:"\e64c"
+            }
+            .feeditemtypeicon.icon-TrackedChange:before{
+                content:"\e646"
+            }
+            .feeditemtypeicon.icon-ChangeStatusPost:before{
+                content:"\e645"
+            }
+            .feeditemtypeicon.icon-CaseCommentPost:before{
+                content:"\e644"
+            }
+            .feeditemtypeicon.icon-PollPost:before{
+                content:"\e643"
+            }
+            .feeditemtypeicon.icon-ApprovalPost:before{
+                content:"\e642"
+            }
+            .feeditemtypeicon.icon-QuestionPost:before{
+                content:"\e636"
+            }
+            .feeditemtypeicon.icon-SocialPost:before{
+                content:"\e60b"
+            }
+            .feeditemtypeicon.icon-Facebook:before{
+                content:"\e641"
+            }
+            .feeditemtypeicon.icon-Twitter:before{
+                content:"\e640"
+            }
+            .feeditemtypeicon.icon-GooglePlus:before{
+                content:"\e63f"
+            }
+            .feeditemtypeicon.icon-SinaWeibo:before{
+                content:"\e63e"
+            }
+            .feeditemtypeicon.icon-VKontakte:before{
+                content:"\e66d"
+            }
+            .feeditemtypeicon.icon-WeChat:before{
+                content:"\e66e"
+            }
+            .feeditemtypeicon.icon-Pinterest:before{
+                content:"\e66f"
+            }
+            .feeditemtypeicon.icon-Line:before{
+                content:"\e670"
+            }
+            .feeditemtypeicon.icon-Instagram:before{
+                content:"\e671"
+            }
+            .feeditemtypeicon.icon-LinkedIn:before{
+                content:"\e672"
+            }
+            .feeditemtypeicon.icon-WhatsApp:before{
+                content:"\e673"
+            }
+            .feeditemtypeicon.icon-YouTube:before{
+                content:"\e669"
+            }
+            .feeditemtypeicon.icon-ChatTranscriptPost:before{
+                content:"\e63d"
+            }
+            .feeditemtypeicon.icon-CanvasPost:before{
+                content:"\e63c"
+            }
+            .feeditemtypeicon.icon-CreateTask:before,.feeditemtypeicon.icon-CompletedMilestone:before{
+                content:"\e605"
+            }
+            .feeditemtypeicon.icon-CreateEvent:before{
+                content:"\e607"
+            }
+            .feeditemtypeicon.icon-CreateRecordEvent:before{
+                content:"\e63b"
+            }
+            .feeditemtypeicon.icon-CreateAccount:before{
+                content:"\e658"
+            }
+            .feeditemtypeicon.icon-ContentPost:before,.feeditemtypeicon.icon-CreateAttachment:before{
+                content:"\e65c"
+            }
+            .feeditemtypeicon.icon-CreateCase:before{
+                content:"\e657"
+            }
+            .feeditemtypeicon.icon-CreateContact:before{
+                content:"\e654"
+            }
+            .feeditemtypeicon.icon-CreateLead:before{
+                content:"\e656"
+            }
+            .feeditemtypeicon.icon-CreateOpportunity:before{
+                content:"\e655"
+            }
+            .feeditemtypeicon.icon-ReplyPost:before{
+                content:"\e63a"
+            }
+            .feeditemtypeicon.icon-AttachArticleEvent:before{
+                content:"\e650"
+            }
+            .feeditemtypeicon.icon-RypplePost:before{
+                content:"\e659"
+            }
+            .emailMessageFeedItemBody .ellipsis{
+                background:#f6f6f6;
+                border:1px solid #d3d3d3;
+                border-radius:3px;
+                padding:3px 3px;
+                clear:both;
+                line-height:8px;
+                outline:none;
+                position:relative;
+                width:20px
+            }
+            .emailMessageFeedItemBody .ellispsisImg{
+                font-family:'compactfeedicons';
+                -webkit-font-smoothing:antialiased;
+                -moz-osx-font-smoothing:grayscale;
+                color:#5f5f5b;
+                padding-top:5px;
+                padding-left:5px
+            }
+            .emailMessageFeedItemBody .ellispsisImg:before{
+                content:"\e649"
+            }
+            .emailMessageFeedItemBody .ellipsis:hover{
+                background-color:#dedede;
+                border-color:#cdcdcd;
+                cursor:pointer;
+                cursor:hand
+            }
+            .emailMessageFeedItemBody .emailBlockquote{
+                margin:0 0 0 .8ex;
+                border-left:1px #ccc solid;
+                padding-left:1ex
+            }
+            .emailMessageFeedItemBody .divImageReplacement{
+                display:inline-block;
+                background:#f9f9f9;
+                border:1px solid #d8d8d8;
+                padding:10px;
+                border-radius:3px
+            }
+            .emailMessageFeedItemBody .clickImage:hover{
+                background-color:#ebebeb;
+                border-color:#cdcdcd;
+                cursor:pointer;
+                cursor:hand
+            }
+            .emailMessageFeedItemBody .divImageReplacement H3{
+                margin-bottom:4px
+            }
+            .emailMessageFeedItemBody .clickImage .clickImageIcon{
+                font-family:'compactfeedicons';
+                -webkit-font-smoothing:antialiased;
+                -moz-osx-font-smoothing:grayscale;
+                float:left;
+                font-size:36px;
+                padding-top:8px;
+                color:gray
+            }
+            .emailMessageFeedItemBody .clickImage .clickImageIcon:before{
+                content:"\e621"
+            }
+            .emailMessageFeedItemBody .divImageReplacement .imageInfo{
+                margin-left:60px
+            }
+            .emailMessageFeedItemBody .divImageReplacement .imageInfo .imageName{
+                font-size:1.0em
+            }
+            .emailMessageFeedItemBody .divImageReplacement .imageInfo .imageSize{
+                font-size:.9em
+            }
+            .emailMessageFeedItemBody .cxexpandedcontent .blockquote{
+                margin:0 0 0 .8ex;
+                border-left:1px #ccc solid;
+                padding-left:1ex
+            }
+            .emailMessageFeedItemBody .divImageReplacement .brokenFileImage{
+                float:left
+            }
+            .emailMessageFeedItemBody .emailMessageBody ul,.emailMessageFeedItemBody .emailMessageBody ol,.emailMessageFeedItemBody .emailMessageBody dl{
+                margin:auto;
+                padding-left:40px;
+                margin-top:1em;
+                margin-bottom:1em
+            }
+            .emailMessageFeedItemBody .emailMessageBody li{
+                margin:auto;
+                list-style:inherit
+            }
+            .emailMessageFeedItemBody .emailMessageBody{
+                overflow-x:auto;
+                display:block
+            }
+            
+        </style>
+    </head>
+
+    <c:Report_Base />
+
+</apex:page>

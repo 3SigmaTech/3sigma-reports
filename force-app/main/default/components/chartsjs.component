@@ -1,0 +1,2079 @@
+<apex:component layout="none">
+<script id="trendingCharts" type="text/javascript">
+
+    var chartobjects = [];
+    //var htmlElement = '';
+    function generatetrend(result) {
+    var htmlElement;
+    try {
+
+        result = JSON.parse($('<div/>').html(result).text());
+        result.inputData = result.inputData[0];
+        htmlElement = result.inputData.htmlElement;
+
+        chartdata = JSON.parse(result.chartsData[0].replace(/amp;/g,""));
+        objectType = result.inputData.objType;
+        whereClause = result.inputData.whereClause;
+
+        // Hide containers container if chart data is blank
+        if (chartdata === undefined || chartdata == null || chartdata == '' || chartdata == {})
+        {
+          $(htmlElement).parent().parent().hide();
+        }
+        else
+        {
+          $(htmlElement).parent().parent().show();
+        }
+
+        var xlabels = [];
+
+        var cdata = [chartdata.opened, chartdata.closed, chartdata.truth, chartdata.cumulative, chartdata.net];
+
+        if (result.inputData.chartType == 'simple')
+        {
+            cdata = cdata.slice(0, 3);
+        }
+
+        var labs = ["Opened","Closed","Truth","Cumulative","Net"];
+        if (objectType == "EmailMessage")
+        {
+            cdata = cdata.slice(0, 2);
+            labs[0] = "Received";
+            labs[1] = "Sent";
+            //labs[2] = "Unresponded";
+        }
+
+        var colors = ["#FF6600","#0000EE","#CC0000","#008800","#AA00FF"];
+        var yaxes = [1, 1, 2, 2, 3];
+        var bars = [true, true, false, false, false];
+        var stacks = [0, 1, 2, 3, 4];
+
+        var plotdata = new Array(cdata.length-1);
+
+        // Loop over each data set
+        for (var j = 0; j < cdata.length; j++)
+        {
+
+            // Loop over each data point
+            plotdata[j] = new Array(cdata[j].length);
+            for (var k = 0; k < cdata[j].length; k++)
+            {
+
+                //  Build x-labels once
+                // Define x-offset (for clustered bars)
+                if (j == 0)
+                {
+                    xlabels.push([k+1, chartdata.xLabels[k] + ' ']);
+                    xoffs = -0.4;
+                }
+                else
+                {
+                    xoffs = 0;
+                }
+
+                // Build plot data
+                var dval = parseInt(cdata[j][k]);
+                plotdata[j][k] = [ k+1+xoffs, dval ];
+            }
+        }
+
+        // Track min/max y-value
+        var maxy = [];
+        var miny = [];
+        for (var k = 0; k < chartdata.xLabels.length; k++)
+        {
+            for (var j = 0; j < cdata.length; j++)
+            {
+                if (yaxes[j] >= maxy.length)
+                {
+                    maxy.push(0);
+                    miny.push(0);
+                }
+                if (maxy[yaxes[j] - 1] < parseInt(cdata[j][k])) { maxy[yaxes[j] - 1] = parseInt(cdata[j][k]); }
+                if (miny[yaxes[j] - 1] > parseInt(cdata[j][k])) { miny[yaxes[j] - 1] = parseInt(cdata[j][k]); }
+            }
+        }
+
+        var plotinfo = [];
+
+        for ( var i = 0; i < plotdata.length; i++ )
+        {
+            plotinfo.push({
+                label: labs[i],
+                data: plotdata[i],
+                objectType:objectType,
+                whereClause:$("<span />", { html: whereClause }).text(),
+                color: colors[i],
+                highlightColor: 'rgba(255,255,255,0.5)',
+                bars: {
+                    show: bars[i],
+                    barWidth: 0.4,
+                    fill: true,
+                    fillColor: colors[i],
+                    lineWidth: 1
+                },
+                lines: {
+                    show: !bars[i]
+                },
+                yaxis: yaxes[i],
+                stack: stacks[i],
+                legendIndex: plotinfo.length,
+                isbar: bars[i]
+            });
+        }
+        myindex = chartobjects.length;
+        chartobjects.push($.plot($(htmlElement),
+            plotinfo,{
+                myindex: myindex,
+                xaxes: [{
+                    min: 0,
+                    ticks: xlabels,
+                    labelAngle: 0.785
+                }],
+                yaxes: [{
+                    min: miny[0],
+                    max: maxy[0]
+                }, {
+                    min: miny[1],
+                    max: maxy[1],
+                    position: 'right'
+                }, {
+                    min: miny[2],
+                    max: maxy[2],
+                    position: 'right',
+                    color: '#AA00FF'
+                }],
+                grid: {
+                    backgroundColor: { colors: ["#D1D1D1", "#7A7A7A"] },
+                    clickable: true,
+                    hoverable: true,
+                    autoHighlight: true
+                },
+                series: {
+                    shadowSize: 0,
+                    plotIndex: myindex,
+                    element: htmlElement
+                },
+                legend: {
+                    show: true,
+                    labelBoxBorderColor: null,
+                    noColumns: 2,
+                    position: "nw",
+                    margin: 10,
+                    backgroundColor: null,
+                    backgroundOpacity: 0,
+                    labelFormatter: function(label, series){
+                      return '<a href="#" onClick="togglePlot(chartobjects[' + series.plotIndex + '],\'' + series.element + '\',' + series.legendIndex + '); return false;">' + label + '</a>';
+                    }
+                }
+            }
+        ));
+
+        $(htmlElement).bind("plotclick", getTrendList);
+        $(htmlElement).bind("plothover", trendHover);
+
+    } catch(e) {
+      console.log(e);
+      $(htmlElement).html('No Data Returned');
+    }
+    }
+
+    function togglePlot(plot, htmlElement, seriesNdx)
+    {
+
+      var plotData = plot.getData();
+      var plotOptions = plot.getOptions();
+
+      if (plotData[seriesNdx].isbar == true)
+      {
+        plotData[seriesNdx].bars.show = !plotData[seriesNdx].bars.show;
+      }
+      else
+      {
+        plotData[seriesNdx].lines.show = !plotData[seriesNdx].lines.show;
+      }
+      if (plotData[seriesNdx].color == "rbg(0,0,0,0)")
+      {
+        plotData[seriesNdx].color = plotData[seriesNdx].shadowColor;
+        plotData[seriesNdx].shadowColor = "rbg(0,0,0,0)";
+      }
+      else
+      {
+        plotData[seriesNdx].shadowColor = plotData[seriesNdx].color;
+        plotData[seriesNdx].color = "rbg(0,0,0,0)";
+      }
+      plotData[seriesNdx].stack = -1*(plotData[seriesNdx].stack+1e6);
+
+      var compData = [];
+      var maxy = [];
+      var miny = [];
+      for (var j = 0; j < plotData.length; j++)
+      {
+          var s = plotData[j].stack;
+          if (s <= -1e6)
+          {
+              continue;
+          }
+          var yax = plotData[j].yaxis.n - 1;
+          if (yax === undefined || yax == null)
+          {
+            continue;
+          }
+          while (yax >= compData.length)
+          {
+              compData.push({});
+              maxy.push(0);
+              miny.push(0);
+          }
+          for (var k = 0; k < plotData[j].data.length; k++)
+          {
+              if (compData[yax][s] === undefined)
+              {
+                compData[yax][s] = {};
+              }
+              var x = plotData[j].data[k][0];
+              if (compData[yax][s][x] === undefined)
+              {
+                compData[yax][s][x] = [0,0];
+              }
+              var d = plotData[j].data[k][1];
+              if (d < 0)
+              {
+                compData[yax][s][x][0] = compData[yax][s][x][0] + d;
+              }
+              else
+              {
+                compData[yax][s][x][1] = compData[yax][s][x][1] + d;
+              }
+          }
+      }
+
+      for (var i = 0; i < compData.length; i++) // axes
+      {
+          for (var j in compData[i]) // stacks
+          {
+              if (!compData[i].hasOwnProperty(j))
+              {
+                  continue;
+              }
+              for (var k in compData[i][j]) // x-pos
+              {
+                  if (!compData[i][j].hasOwnProperty(k))
+                  {
+                      continue;
+                  }
+                  if (maxy[i] < parseInt(compData[i][j][k][1])) { maxy[i] = parseInt(compData[i][j][k][1]); }
+                  if (miny[i] > parseInt(compData[i][j][k][0])) { miny[i] = parseInt(compData[i][j][k][0]); }
+              }
+          }
+      }
+
+      for (var k = 0; k < plotOptions.yaxes.length; k++)
+      {
+        plotOptions.yaxes[k].max = maxy[k];
+        plotOptions.yaxes[k].min = miny[k];
+      }
+
+      plot = $.plot($(htmlElement), plotData, plotOptions);
+    }
+
+    function trendHover(event, pos, item)
+    {
+        try
+        {
+            $("#x").text((pos.x || pos.x1 || pos.x2).toFixed(2));
+            $("#y").text((pos.y || pos.y1 || pos.y2).toFixed(2));
+        }
+        catch (err)
+        {
+            return;
+        }
+
+        if (item)
+        {
+            if (previousPoint != item.dataIndex)
+            {
+                previousPoint = item.dataIndex;
+
+                $("#tooltip").remove();
+                var y2 = 0;
+                if (item.datapoint[2] != undefined)
+                {
+                    y2 = item.datapoint[2].toFixed(0);
+                }
+                var y = item.datapoint[1].toFixed(0) - y2;
+
+                showTooltip(item.pageX, item.pageY,
+                    y + " " + item.series.label + " on " + item.series.xaxis.ticks[item.dataIndex].label);
+            }
+        }
+        else
+        {
+            $("#tooltip").remove();
+            previousPoint = null;
+        }
+    }
+</script>
+
+<script id="pieCharts" type="text/javascript">
+
+    function generatepie(result)
+    {
+      var htmlElement;
+      try
+      {
+          if (result == null) { return; }
+          result = JSON.parse($('<div/>').html(result).text());
+          result.inputData = result.inputData[0];
+          htmlElement = result.inputData.htmlElement;
+
+          chartdata = JSON.parse(result.chartsData[0].replace(/amp;/g,""));
+
+          objectType = result.inputData.objType;
+          whereClause = result.inputData.whereClause;
+
+          lowerThreshold = result.inputData.lowerThreshold;
+          maxResults = result.inputData.maxResults;
+          groupClause = result.inputData.groupClause;
+          comparisonOperator = result.inputData.comparisonOperator;
+          aggregateField = result.inputData.aggregateField;
+          labelTranslations = result.inputData.labelTranslations;
+          chartType = result.inputData.chartType;
+          controlType = result.inputData.controlType;
+          chartColors = result.inputData.chartColors;
+
+          // Hide containers container if chart data is blank
+          if (chartdata === undefined || chartdata == null || chartdata == '' || chartdata == {}) {
+            $(htmlElement).parent().parent().hide();
+          } else {
+            $(htmlElement).parent().parent().show();
+          }
+
+          var labs = chartdata.labels;
+          var vals = chartdata.values;
+          var counts = chartdata.counts;
+          var colors = chartdata.colors.length > 0 ? chartdata.colors : result.inputData.chartColors;
+
+          // Create whereClause array (for each element in chart)
+          wcs = labs.slice(0);
+          for (var i = 0; i < wcs.length; i++) {
+
+              wcs[i] = whereClause;
+
+              if ( labs[i] != null /*&& labs[i] != '' && labs[i] != ' '*/ && labs[i].indexOf('*') == -1 ) {
+
+                  fvals = labs[i].split('|');
+                  flds = groupClause.split(',');
+
+                  for (var k = 0; k < flds.length; k++)
+                  {
+                      cleanlabel = fvals[k].replace(/'/g, "\\'").replace(/\\/g, "\\\\").trim(); //" -- to set coloring in browser
+
+                      if (cleanlabel != '')
+                      {
+                          wcs[i] = wcs[i] + ' and ' + flds[k].trim() + ' ' + comparisonOperator;
+                      }
+
+                      if (comparisonOperator == 'in')
+                      {
+                          if (isNaN(cleanlabel) || cleanlabel == '')
+                          {
+                            wcs[i] = wcs[i] + ' (\'' + cleanlabel + '\')';
+                          }
+                          else
+                          {
+                            wcs[i] = wcs[i] + ' (' + cleanlabel + ')';
+                          }
+                      }
+                      else if (comparisonOperator == 'like')
+                      {
+                          wcs[i] = wcs[i] + ' \'%' + cleanlabel + '%\'';
+                      }
+                      else
+                      {
+                          if (isNaN(cleanlabel))
+                          {
+                            wcs[i] = wcs[i] + ' \'' + cleanlabel + '\'';
+                          }
+                          else if (cleanlabel == '')
+                          {
+                            wcs[i] = wcs[i] + " and (" + flds[k].trim() + " " + comparisonOperator + " '" + cleanlabel + "' OR " + flds[k].trim() + " " + comparisonOperator + ' null)';
+                            wcs[i] = wcs[i] ;
+                          }
+                          else
+                          {
+                            wcs[i] = wcs[i] + ' ' + cleanlabel + '';
+                          }
+                      }
+
+                  }
+              }
+              wcs[i] = wcs[i].replace(/'null'/g, "null").replace(/'true'/g, "true").replace(/'false'/g, "false");
+          }
+
+          // Loop over each data point
+          plotdata = new Array(vals.length);
+          var pd;
+          for (var k = 0; k < vals.length; k++) {
+
+              pd = new Object();
+
+              pd.label = labelTranslator(labs[k], labelTranslations);
+
+              pd.data = [0, parseInt(vals[k]), counts[k], wcs[k] ];
+
+              if (colors != null && colors.length > 0) {
+                  pd.color = colors[k];
+              }
+
+              plotdata[k] = pd;
+          }
+
+          if (chartType == null || chartType == '' || controlType == 'piechart') {
+               
+               if (result.inputData.orderClause === null)
+               {
+                   plotdata.sort(function(a, b) 
+                   {
+                        return a.data[1] < b.data[1] ? 1 : -1;
+                   });
+              }
+              
+              chartobjects.push($.plot($(htmlElement),
+                  plotdata, {
+                  series: {
+                      pie: {
+                          show: true,
+                          radius: 1,
+                          combine: {
+                              threshold: lowerThreshold,
+                              maxresults: maxResults,
+                              label: "*Other"
+                          },
+                          label: {
+                              show: true,
+                              // Added custom formatter here...
+                              formatter: function(label,point) {
+                                  return(point.percent.toFixed(0) + '%');
+                              }
+                          }
+                      },
+                      aggregateField: aggregateField,
+                      ispie: 'true',
+                      objectType: objectType
+                  },
+                  grid: {
+                      hoverable: true,
+                      clickable: true
+                  },
+                  legend: {
+                      show: true,
+                      position: 'nw',
+                      labelFormatter: function (label, series) {
+                          return '<div onclick="getFilteredList(null, null, null, \'' + series.data[0][3].replace(/'/g,'\\\'') + '\',\'' + series.objectType + '\',\'' + series.color + '\');">' + label + '</div>';
+                      }
+                  }
+              }));
+          } else if (chartType == 'bar') {
+              // INCOMPLETE AND NEEDS TO BE ROLLED INTO ADHOC FUNCTION(S)
+
+              // Get color at random because why not?
+              var colors = [
+                  "#CC3300","#FF6600","#AA1100",
+                  "#000066","#0000EE","#000033",
+                  "#770000","#CC0000"
+              ];
+              var barcolor = colors[Math.floor(Math.random()*9)];
+
+              // NEED TO SORT PLOT DATA
+              plotdata.sort(pieToBarSorter);
+
+              // Build bar chart structures
+              xlabels = []; maxy = [0]; bardata = [];
+              for (var k = 0; k < plotdata.length; k++) {
+                xlabels.push([k,plotdata[k].label]);
+
+                bardata.push([k, plotdata[k].data[1], 0, plotdata[k].data[3]]);
+                if (maxy[0] < plotdata[k].data[1]) {
+                  maxy[0] = plotdata[k].data[1];
+                }
+              }
+
+              chartobjects.push($.plot($(htmlElement),
+                  [{
+                      label: groupClause.replace("__c","").replace(/_/g," "),
+                      data: bardata,
+                      objectType: objectType,
+                      ispie: 'false',
+                      whereClause: whereClause,
+                      color: barcolor,
+                      bars: {
+                          show: true,
+                          barWidth: 0.4,
+                          fill: true,
+                          fillColor: barcolor,
+                          highlightColor: 'rgba(255,255,255,0.5)',
+                          lineWidth: 1
+                      },
+                      yaxis: 1
+                  }],{
+                  xaxes: [{
+                      min: 0,
+                      ticks: xlabels,
+                      labelAngle: 0.785
+                  }],
+                  yaxes: [{
+                      min: 0,
+                      max: maxy[0]
+                  }],
+                  grid: {
+                      backgroundColor: { colors: ["#D1D1D1", "#7A7A7A"] },
+                      clickable: true,
+                      hoverable: true
+                  },
+                  series: {
+                      shadowSize: 0
+                  },
+                  legend: {
+                      show: false,
+                      labelBoxBorderColor: null,
+                      noColumns: 2,
+                      position: "nw",
+                      margin: 10,
+                      backgroundColor: null,
+                      backgroundOpacity: 0
+                  }
+              }));
+          }
+
+          $(htmlElement).bind("plothover", piehover);
+          $(htmlElement).bind("plotclick", getFilteredList);
+      } catch(e) {
+        console.log(e);
+        $(htmlElement).html('No Data Returned');
+      }
+    }
+
+    function pieToBarSorter(a, b) {
+        if ( isNaN(a.label) || isNaN(b.label) ) {
+          if (a.label < b.label) return -1;
+          if (a.label > b.label) return 1;
+        } else {
+          if (parseInt(a.label) < parseInt(b.label)) return -1;
+          if (parseInt(a.label) > parseInt(b.label)) return 1;
+        }
+        return 0;
+    }
+
+    function piehover(event, pos, item) {
+        if (item) {
+            if (item.series.ispie == 'true') {
+              if (item.series.aggregateField == null || item.series.aggregateField == '') {
+                  label = item.series.data[0][2] + " " + item.series.label;
+              } else {
+                  label = item.series.data[0][2] + " - " + item.series.label + "<br/>"
+                      + item.series.aggregateField.replace("__c","").replace(/_/g," ") + " : "
+                      + formatLabel(item.series.aggregateField, item.series.data[0][1]);
+              }
+
+              if (previousPoint != item.seriesIndex) {
+                  previousPoint = item.seriesIndex;
+
+                  $("#tooltip").remove();
+
+                  showTooltip(pos.pageX, pos.pageY, label);
+              }
+            } else {
+                try {
+                    $("#x").text(pos.x.toFixed(2));
+                    $("#y").text(pos.y.toFixed(2));
+                } catch (err) {
+                    return;
+                }
+
+                if (previousPoint != item.dataIndex) {
+                    previousPoint = item.dataIndex;
+
+                    $("#tooltip").remove();
+                    var y2 = 0;
+                    if (item.datapoint[2] != undefined) {
+                        y2 = item.datapoint[2].toFixed(0);
+                    }
+                    var y = item.datapoint[1].toFixed(0) - y2;
+
+                    showTooltip(item.pageX, item.pageY,
+                        y
+                        + " " + item.series.objectType + "s have "
+                        + item.series.label
+                        + " = " + item.series.xaxis.ticks[item.dataIndex].label
+                    );
+                }
+
+            }
+        }
+        else {
+            $("#tooltip").remove();
+            previousPoint = null;
+        }
+    }
+
+    function formatLabel(field, value)
+    {
+        if (value == '')
+        {
+          return '';
+        }
+        if ( (field.indexOf("Revenue") >= 0) || (field.indexOf("Cost") >= 0) )
+        {
+            c = 0;
+            d = ".";
+            s = value < 0 ? "-" : "",
+            i = parseInt(value = Math.abs(+value || 0).toFixed(c)) + "",
+            j = (j = i.length) > 3 ? j % 3 : 0;
+            formatted = "$" + s + (j ? i.substr(0, j) + "," : "")
+                + i.substr(j).replace(/(\d{3})(?=\d)/g, "$1" + ",")
+                + (c ? d + Math.abs(value - i).toFixed(c).slice(2) : "");
+        }
+        else if (field.indexOf("Date") >= 0)
+        {
+            dt = value.split(' ')[0].split('-');
+            formatted = dt[1] + '/' + dt[2] + '/' + dt[0];
+        }
+        else
+        {
+            formatted = value;
+        }
+        return formatted;
+     };
+
+    function labelTranslator(label, dictionary)
+    {
+        retstr = label;
+
+        if (dictionary !== undefined && dictionary != null && dictionary != '' && dictionary.length > 0)
+        {
+            for (var i = 0; i < dictionary.length; i++)
+            {
+                if (dictionary[i] != null && dictionary[i].length == 2)
+                {
+                  retstr = retstr.replace(dictionary[i][0],dictionary[i][1]);
+                }
+            }
+        }
+        if (retstr == "")
+        {
+            retstr = "{Blank}";
+        }
+        return retstr;
+    }
+
+</script>
+
+<script id="recordLists" type="text/javascript">
+
+    function generatedirectional(result) {
+        try {
+
+            if (result == null) { return; }
+            result = JSON.parse($('<div/>').html(result).text());
+            result = result[0];
+            htmlElement = result.inputData[0].htmlElement;
+
+            var htmlstr = '';
+
+            if (result.chartsData.length < 2)
+            {
+                throw 'Not enough data';
+            }
+
+            var currentVal = parseFloat(result.chartsData[0] == "" || result.chartsData[0] == null ? 0 : result.chartsData[0]);
+            var previousVal = parseFloat(result.chartsData[1] == "" || result.chartsData[1] == null ? 0 : result.chartsData[1]);
+            var diff = currentVal - previousVal;
+
+            var percentChange = ( 100 * (diff / (previousVal == 0 ? 1 : previousVal) ) ).toFixed(1);
+
+            //var percentChange = 100 * ( currentVal == 0 ? 1 : Math.round(currentVal / (previousVal == 0 ? 1 : previousVal), 1) );
+
+
+
+            var compVal = (previousVal < currentVal);
+            var arrowClass = '';
+            var cT = result.inputData[0].chartType;
+            if (cT == 'negative_integer' || cT == 'negative_double')
+            {
+                if (compVal)
+                {
+                    arrowClass = 'reduparrow';
+                }
+                else if (!compVal && previousVal != currentVal)
+                {
+                    arrowClass = 'greendownarrow';
+                }
+                else
+                {
+                    arrowClass = 'graynoarrow';
+                }
+            }
+            else
+            {
+                if (compVal)
+                {
+                    arrowClass = 'greenuparrow';
+                }
+                else if (!compVal && previousVal != currentVal)
+                {
+                    arrowClass = 'reddownarrow';
+                }
+                else
+                {
+                    arrowClass = 'graynoarrow';
+                }
+            }
+
+            var hovertext = "Previous Value : " + previousVal
+                            + "</br>"
+                            + "Current Value : " + currentVal;
+
+            htmlStr = '<div class="directionalcontainer" onmouseover="showTooltip(tempX,tempY,\'' + hovertext + '\');" onmouseout="$(\'#tooltip\').remove();">'
+                    + '  <div class="arrowouterbox">'
+                    + '    <div class="arrowinnerbox">'
+                    + '      <span class="directionalarrow ' + arrowClass + '"></span>'
+                    + '    </div>'
+                    + '  </div>'
+                    //+ '  <p>Last Value: ' + previousVal + '</p>'
+                    //+ '  <p>Current Value: ' + currentVal + '</p>'
+                    + '  <p class="metricvalue">' + percentChange + '%</p>'
+                    + '</div>';
+
+            $(htmlElement).html( htmlStr );
+
+        } catch(e) {
+          console.log(e);
+          $(htmlElement).html('No Data Returned');
+        }
+    }
+
+    function generategrid(result)
+    {
+
+        if (result == null) { return; }
+        result = JSON.parse($('<div/>').html(result).text());
+
+        var htmlstr = '';
+        for (var r = 0; r < result.length; r++)
+        {
+          htmlstr += '<tr>';
+          for (var c = 0; c < result[r].chartsData.length; c++)
+          {
+            if (result[r].inputData[c].chartType == 'header')
+            {
+              htmlstr += '<th>';
+            }
+            else
+            {
+              htmlstr += '<td style="cursor: pointer;" onclick="getDrillList(\'' + result[r].inputData[c].objType + '\',\'' + result[r].inputData[c].whereClause.replace(/'/g, "\\'") + '\',\'#000\')">';
+            }
+            if (result[r].inputData[c].chartType == 'formula')
+            {
+                htmlstr += calcGridFormula(result[r].inputData[c].label, result);
+            }
+            else
+            {
+                htmlstr += result[r].chartsData[c];
+            }
+            if (result[r].inputData[c].chartType == 'header')
+            {
+              htmlstr += '</th>';
+            }
+            else
+            {
+              htmlstr += '</td>';
+            }
+          }
+          htmlstr += '</tr>';
+        }
+
+        $(result[0].inputData[0].htmlElement).html( htmlstr );
+    }
+
+    function calcGridFormula(formula, data)
+    {
+        var grid = [];
+        var row = [];
+        for (var r = 0; r < data.length; r++)
+        {
+            row = [];
+            for (var c = 0; c < data[r].chartsData.length; c++)
+            {
+                row.push(data[r].chartsData[c]);
+            }
+            grid.push(row);
+        }
+        var formattedFormula = formula.formatAA(grid);
+        return eval(formattedFormula);
+    }
+
+    if (!String.prototype.formatAA) {
+      String.prototype.formatAA = function() {
+        var args = arguments[0];
+        return this.replace(/{(\d+),\s*(\d+)}/g, function(match, xcoord, ycoord) {
+          return typeof args[ycoord][xcoord] != 'undefined'
+            ? args[ycoord][xcoord]
+            : match
+          ;
+        });
+      };
+    }
+
+    function getFilteredList(event, pos, item, whereClause, objectType, color)
+    {
+        if (item)
+        {
+            whereClause = item.series.data[0][3];
+            if (item.series.ispie == 'false')
+            {
+                whereClause = item.series.data[item.dataIndex][3];
+            }
+
+            objectType = item.series.objectType;
+            color = item.series.color;
+        }
+        getDrillList(objectType, whereClause, color);
+    }
+
+    function getDrillList(objType, whereClause, color)
+    {
+        var formatData = getDrillFormatStrings(objType);
+
+        var reportInput = {
+            objType: formatData.objectType,
+            chartType: (formatData.objectType == 'EmailMessage' ? 'email' : 'list'),
+            whereClause: whereClause,
+            selectClause: formatData.fields
+        };
+        $("#drillDownList").html('');
+        reportInput.htmlElement = "#drillDownList";
+        x3st_reports.Reporting.ReturnRecordList( JSON.stringify(reportInput), function(result, event) { injectRecordList(result, formatData); } );
+
+        $("#drillDownListtitle").html('Filtered ' + objType + 's');
+        $("#drillDownListcontainer").css('border-color', color);
+    }
+
+    function getTrendList(event, pos, item) {
+        if (item) {
+            openVclosed = item.series.label;
+
+            var dtbeg = item.series.xaxis.ticks[0].label.trim();
+            var dtb = dtbeg + 'T00:00:00Z';
+
+            var dtlast = item.series.xaxis.ticks[item.series.xaxis.ticks.length - 1].label.trim();
+            var dtl = dtlast + 'T23:59:59Z';
+
+            var dt = item.series.xaxis.ticks[item.dataIndex].label.trim();
+            var dts = dt + 'T00:00:00Z';
+            var dte = dt + 'T23:59:59Z';
+
+
+            var whereClause = item.series.whereClause;
+            if (openVclosed == 'Opened')
+            {
+              whereClause += ' and CreatedDate >= ' + dts + ' and CreatedDate <= ' + dte + '';
+            }
+            else if (openVclosed == 'Closed')
+            {
+              if (item.series.objectType == 'Task')
+              {
+                whereClause += ' and LastModifiedDate >= ' + dts + ' and LastModifiedDate <= ' + dte + ' and Status = \'Completed\'';
+              }
+              else if (item.series.objectType == 'Case')
+              {
+                whereClause += ' and ClosedDate >= ' + dts + ' and ClosedDate <= ' + dte + '';
+              }
+            }
+            else if (openVclosed == 'Net')
+            {
+              if (item.series.objectType == 'Task')
+              {
+                // needs work
+                whereClause += ' and CreatedDate >= ' + dtb + ' and CreatedDate <= ' + dte + ' and (Status != \'Completed\' OR ( LastModifiedDate >= ' + dte + ' OR LastModifiedDate = Null ) )';
+              }
+              else if (item.series.objectType == 'Case')
+              {
+                whereClause += ' and ( (CreatedDate >= ' + dts + ' and CreatedDate <= ' + dte + ' and (ClosedDate = Null or ClosedDate >= ' + dte + ')) or (ClosedDate >= ' + dts + ' AND ClosedDate <= ' + dte + ' and CreatedDate <= ' + dts + ') )';
+              }
+            }
+            else if (openVclosed == 'Cumulative')
+            {
+              if (item.series.objectType == 'Task')
+              {
+                // needs work
+                whereClause += ' and CreatedDate >= ' + dtb + ' and CreatedDate <= ' + dte + ' and (Status != \'Completed\' OR ( LastModifiedDate >= ' + dte + ' OR LastModifiedDate = Null ) )';
+              }
+              else if (item.series.objectType == 'Case')
+              {
+                whereClause += ' and CreatedDate >= ' + dtb + ' and CreatedDate <= ' + dte + ' and ( (ClosedDate >= ' + dts /*+ ' AND ClosedDate <= ' + dtl*/ + ') OR ClosedDate = Null )';
+              }
+            }
+            else if (openVclosed == 'Truth')
+            {
+              if (item.series.objectType == 'Task')
+              {
+                whereClause += ' and CreatedDate <= ' + dte + ' and (IsClosed = false OR ( LastModifiedDate >= ' + dte + ' OR LastModifiedDate = Null ) )';
+              }
+              else if (item.series.objectType == 'Case')
+              {
+                whereClause += ' and CreatedDate <= ' + dte + ' and ( ClosedDate >= ' + dte + ' OR ClosedDate = Null )';
+              }
+            }
+            else if (openVclosed == 'Sent')
+            {
+              whereClause += ' and CreatedDate >= ' + dts + ' and CreatedDate <= ' + dte + ' and Incoming = false';
+            }
+            else if (openVclosed == 'Received')
+            {
+              whereClause += ' and CreatedDate >= ' + dts + ' and CreatedDate <= ' + dte + ' and Incoming = true';
+            }
+            else if (openVclosed == 'Unresponded')
+            {
+              return; //whereClause += ' and CreatedDate >= ' + dts + ' and CreatedDate <= ' + dte + ' and Incoming = false';
+            }
+
+            var formatData = getDrillFormatStrings(item.series.objectType);
+
+            var reportInput = {
+              objType: item.series.objectType,
+              chartType: (formatData.objectType == 'EmailMessage' ? 'email' : 'list'),
+              whereClause: whereClause,
+              selectClause: formatData.fields,
+              htmlElement: "#drillDownList"
+            };
+
+            x3st_reports.Reporting.ReturnRecordList( JSON.stringify(reportInput), function(result, event) { injectRecordList(result, formatData); } );
+
+            $("#drillDownListtitle").html(item.series.objectType + 's ' + openVclosed + ' on ' +
+                item.series.xaxis.ticks[item.dataIndex].label
+            );
+            $("#drillDownListcontainer").css('border-color', item.series.color);
+
+        }
+    }
+
+    if (!getDrillFormatStrings)
+    {
+      function getDrillFormatStrings(objType) {
+        var retObj = { objectType: objType, headers: [], fields: '', formatStr: '', maxIndex: 0 };
+
+        var ndx = 0;
+        if (objType == 'Case')
+        {
+          retObj.headers.push('Case Number');
+          retObj.fields = 'Id,CaseNumber';
+          retObj.formatStr = '<td><a href="/{' + ndx++ + '}">{' + ndx++ + '}</a></td>';
+
+          retObj.headers.push('Subject');
+          retObj.fields += ',Subject';
+          retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+          retObj.headers.push('Status');
+          retObj.fields += ',Status';
+          retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+          retObj.headers.push('Type');
+          retObj.fields += ',Type';
+          retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+          retObj.headers.push('Priority');
+          retObj.fields += ',Priority';
+          retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+          retObj.headers.push('Account');
+          retObj.fields += ',AccountId,Account.Name';
+          retObj.formatStr += '<td><a href="/{' + ndx++ + '}">{' + ndx++ + '}</a></td>';
+
+          retObj.headers.push('Created');
+          retObj.fields += ',CreatedDate';
+          retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+          retObj.headers.push('Last Mod');
+          retObj.fields += ',LastModifiedDate';
+          retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+          retObj.headers.push('Age');
+          retObj.fields += ',Age__c';
+          retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+          retObj.headers.push('Parent');
+          retObj.fields += ',ParentId,Parent.CaseNumber';
+          retObj.formatStr += '<td><a href="/{' + ndx++ + '}">{' + ndx++ + '}</a></td>';
+
+          retObj.maxIndex = (ndx - 1);
+        }
+        else if (objType == "Task")
+        {
+          /*
+          return '<tr><td><a href="/' + objType.Id + '">' + objType.Subject + '</a></td>' +
+            '<td>' + objType.Status + '</td>' +
+            '<td>' + objType.Priority + '</td>' +
+            '<td>' + objType.CreatedDate.format('MM/dd/yyyy') + '</td>' +
+            '<td>' + clsdt + '</td>' +
+            '<td>' + objType.LastModifiedDate.format('MM/dd/yyyy') + '</td>' +
+            '<td>' + myduedate + '</td>' +
+            '<td>' + whatid + '</td>' +
+            '<td><a href="/' + objType.OwnerId + '">' + objType.Owner.FirstName + ' ' + objType.Owner.LastName + '</a></td>' +
+            '<td><a href="/' + objType.CreatedById + '">' + objType.CreatedBy.FirstName + ' ' + objType.CreatedBy.LastName + '</a></td>' +
+            '</tr>';
+          */
+        }
+        return retObj;
+      }
+    }
+
+    function injectRecordList(result, formatData)
+    {
+        result = JSON.parse($('<div/>').html(result).text().replace(/(?:\r\n|\r|\n)/g, ' '));
+        listdata = JSON.parse(result.chartsData[0].replace(/amp;/g,""));
+
+        if (formatData === undefined || formatData.headers === undefined)
+        {
+            formatData.headers = result.inputData[0].listHeaders;
+        }
+        if (formatData === undefined || formatData.formatStr === undefined)
+        {
+            formatData.formatStr = result.inputData[0].listFormat;
+        }
+        
+        if (listdata.recordData.length == 0)
+        {
+            $(result.inputData[0].htmlElement).html('No data returned');
+        }
+        else if (result.inputData[0].chartType != 'email')
+        {
+            var attrs = { };
+
+            $.each($(result.inputData[0].htmlElement)[0].attributes, function(idx, attr) {
+                attrs[attr.nodeName] = attr.nodeValue;
+            });
+            
+            $(result.inputData[0].htmlElement).replaceWith(function () {
+                return $("<table />", attrs).append($(this).contents());
+            });
+            
+            $(result.inputData[0].htmlElement).addClass('drillDownList').removeClass('fillcontainer');
+            
+            $(result.inputData[0].htmlElement).html(
+                '<thead><tr><th>' + formatData.headers.join('</th><th>') + '</th></tr></thead>' +
+                '<tbody><tr>' +
+                $.map(listdata.recordData, function(x) { return formatData.formatStr.formatA(x); }).join('</tr><tr>') +
+                '</tr></tbody>'
+            );
+        }
+        else if (result.inputData[0].chartType == 'email')
+        {
+            var attrs = { };
+
+            $.each($(result.inputData[0].htmlElement)[0].attributes, function(idx, attr) {
+                attrs[attr.nodeName] = attr.nodeValue;
+            });
+            
+            $(result.inputData[0].htmlElement).replaceWith(function () {
+                return $("<table />", attrs).append($(this).contents());
+            });
+            
+            $(result.inputData[0].htmlElement).addClass('drillDownList').removeClass('fillcontainer');
+            
+            var fieldArr = result.inputData[0].selectClause.split(',').map(function(item) 
+            {
+                return item.trim().toLowerCase();
+            });
+            
+            $(result.inputData[0].htmlElement).html(
+                '<thead><tr><th>' + formatData.headers.join('</th><th>') + '</th></tr></thead>' +
+                '<tbody><tr style="background:#FFF;border-bottom: 2px solid grey;">' +
+                $.map(listdata.recordData, function(x) 
+                {
+                    return formatData.formatStr.formatA(x, fieldArr); 
+                }).join('</tr><tr style="background:#FFF;border-bottom: 2px solid grey;">') +
+                '</tr></tbody>'
+            );
+        }
+        
+        // If drilling into chart - scroll to result
+        if (result.inputData[0].htmlElement == "#drillDownList")
+        {
+            goToByScroll("#drillDownListheader");
+        }
+        else
+        {
+            $(result.inputData[0].htmlElement).parent().addClass('drillContainer');
+        }
+        annotateTable(result.inputData[0].htmlElement);
+    }
+    
+    function displayCalendar(result)
+    {
+        result = JSON.parse($('<div/>').html(result).text().replace(/(?:\r\n|\r|\n)/g, ' '));
+        listdata = JSON.parse(result.chartsData[0].replace(/amp;/g,""));
+        
+        formatObj = JSON.parse(result.inputData[0].listFormat);
+                
+        var events = [];
+        if (listdata !== undefined && listdata.recordData !== undefined)
+        {
+            for (var i = 0; i < listdata.recordData.length; i++)
+            {
+                var d = listdata.recordData[i];
+                
+                evt = {};
+                
+                for (var j = 0; j < listdata.fieldList.length; j++)
+                {
+                    evt["meta-" + listdata.fieldList[j]] = d[j];
+                }
+                evt["title"] = d[listdata.fieldList.indexOf(formatObj.title)];
+                evt["start"] = d[listdata.fieldList.indexOf(formatObj.start)];
+                if (formatObj.end !== undefined)
+                {
+                    evt["end"] = d[listdata.fieldList.indexOf(formatObj.end)];
+                }
+                evt["id"] = d[listdata.fieldList.indexOf(formatObj.id)];
+                
+                if (formatObj.url !== undefined)
+                {
+                    evt["url"] = d[listdata.fieldList.indexOf(formatObj.url)];
+                }
+                else
+                {
+                    evt["url"]  = "#";
+                }
+                
+                if (formatObj.color !== undefined)
+                {
+                    evt["color"] = d[listdata.fieldList.indexOf(formatObj.color)];
+                }
+                
+                if (formatObj.textColor !== undefined)
+                {
+                    evt["textColor"] = d[listdata.fieldList.indexOf(formatObj.textColor)];
+                }
+                    
+                if (formatObj.className !== undefined)
+                {
+                    evt["className"] = d[listdata.fieldList.indexOf(formatObj.className)];
+                }
+                
+                events.push(evt);
+            }
+        }
+        
+        $(result.inputData[0].htmlElement).fullCalendar({
+            header: {
+                left: 'prev,today,next',
+                center: 'title',
+                right: 'month,agendaWeek,agendaDay,listWeek'
+            },
+            defaultDate: moment().format('YYYY-MM-DD'),
+            navLinks: true, // can click day/week names to navigate views
+            weekNumbers: false,
+            weekNumbersWithinDays: false,
+            weekNumberCalculation: 'ISO',
+            editable: false,
+            
+            titleRangeSeparator: ' \u2013 ',
+            monthYearFormat: 'MMMM YYYY',
+            defaultTimedEventDuration: '01:30:00',
+            defaultAllDayEventDuration: { days: 1 },
+            forceEventDuration: false,
+            nextDayThreshold: '09:00:00',
+      
+            // display
+            columnHeader: true,
+            defaultView: 'month',
+            aspectRatio: 2,
+            weekends: true,
+            weekNumbers: false,
+            weekNumberTitle: 'W',
+            
+            nowIndicator: true,
+            scrollTime: '06:00:00',
+            minTime: '00:00:00',
+            maxTime: '24:00:00',
+            showNonCurrentDates: true,
+            
+            // event ajax
+            lazyFetching: true,
+            startParam: 'start',
+            endParam: 'end',
+            timezoneParam: 'timezone',
+            timezone: false,
+            
+            // allDayDefault: undefined,
+            // locale
+            locale: null,
+            isRTL: false,
+            buttonText: {
+                prev: '<',
+                next: '>',
+                prevYear: '<<',
+                nextYear: '>>',
+                year: 'year',
+                today: ' • ',
+                month: 'month',
+                week: 'week',
+                day: 'day'
+            },
+            // buttonIcons: null,
+            allDayText: 'all-day',
+            // allows setting a min-height to the event segment to prevent short events overlapping each other
+            agendaEventMinHeight: 0,
+            // jquery-ui theming
+            theme: false,
+            // themeButtonIcons: null,
+            // eventResizableFromStart: false,
+            dragOpacity: .75,
+            dragRevertDuration: 500,
+            dragScroll: true,
+            // selectable: false,
+            unselectAuto: true,
+            // selectMinDistance: 0,
+            dropAccept: '*',
+            eventOrder: 'title',
+            // eventRenderWait: null,
+            eventLimit: true,
+            eventLimitText: 'more',
+            eventLimitClick: 'popover',
+            dayPopoverFormat: 'LL',
+            handleWindowResize: true,
+            windowResizeDelay: 100,
+            longPressDelay: 1000,
+            
+            eventClick: function(calEvent, jsEvent, view) {
+                window.open('/' + calEvent.id, '_blank');
+            },
+            
+            eventMouseover: function(calEvent, jsEvent) {
+                $("#tooltip").remove();
+                
+                var ttip = "";
+                for (var property in calEvent) 
+                {
+                    if (calEvent.hasOwnProperty(property) && property.startsWith("meta-"))
+                    {
+                        if (ttip != "")
+                        {
+                            ttip += "<br/>";
+                        }
+                        var prop = property.substring(5);
+                        if (prop.indexOf(' ') > -1)
+                        {
+                            prop = prop.split(' ')[1];
+                        }
+                        ttip += prop.replace(/([A-Z])/g, ' $1').replace(/\_\_r/g, '').replace(/\_\_c/g, '').replace(/\./g, ' ').replace(/\_/g, ' ').replace(/  /g, ' ')
+                             + " : " + calEvent[property];
+                    }
+                }
+                
+                showTooltip(jsEvent.pageX + 10, jsEvent.pageY + 10,
+                  ttip//calEvent.title
+                );
+                
+            },
+            
+            eventMouseout: function(calEvent, jsEvent) {
+                 $("#tooltip").remove();
+            },
+            
+            events: events
+              
+        });
+    }
+    
+    function displayMap(result)
+    {
+        alert("This functionality is forthcoming.");
+        return;
+        
+        result = JSON.parse($('<div/>').html(result).text().replace(/(?:\r\n|\r|\n)/g, ' '));
+        var listdata = JSON.parse(result.chartsData[0].replace(/amp;/g,""));
+        
+        var formatObj = JSON.parse(result.inputData[0].listFormat);
+                
+        if (listdata !== undefined && listdata.recordData !== undefined)
+        {
+            mapId = result.inputData[0].htmlElement.replace('#','');
+            if (window.maps == null || window.maps == undefined) { window.maps = {}; }
+            window.maps[mapId] = new google.maps.Map(document.getElementById(mapId),
+            {
+              //center: {lat: -33.8688, lng: 151.2195},
+              //zoom: 13,
+              mapTypeId: 'roadmap'
+            });
+            var geocoder = new google.maps.Geocoder();
+            
+            // Create the search box and link it to the UI element.
+            var input = document.getElementById(mapId + 'search');
+            var searchBox = new google.maps.places.SearchBox(input);
+            window.maps[mapId].controls[google.maps.ControlPosition.TOP_LEFT].push(input);
+    
+            // Bias the SearchBox results towards current map's viewport.
+            window.maps[mapId].addListener('bounds_changed', function() 
+            {
+              searchBox.setBounds(window.maps[mapId].getBounds());
+            });
+            
+            window.maps[mapId].addListener('click', function(e) 
+            {
+                if (e.placeId === undefined) { return; }
+                var service = new google.maps.places.PlacesService(window.maps[mapId]);
+                var request = {
+                    placeId: e.placeId
+                };
+                service.getDetails(request, function(place, status) {
+                    console.log(status);
+                    console.log(place);
+                });
+            });
+            
+            var markers = [];
+            
+            // Listen for the event fired when the user selects a prediction and retrieve
+            // more details for that place.
+            searchBox.addListener('places_changed', function() 
+            {
+              var places = searchBox.getPlaces();
+    
+              if (places.length == 0) 
+              {
+                return;
+              }
+    
+              // Clear out the old markers.
+              markers.forEach(function(marker) 
+              {
+                marker.setMap(null);
+              });
+              markers = [];
+    
+              // For each place, get the icon, name and location.
+              var bounds = new google.maps.LatLngBounds();
+              places.forEach(function(place) 
+              {
+                if (!place.geometry) 
+                {
+                  console.log("Returned place contains no geometry");
+                  return;
+                }
+                var icon = {
+                  url: place.icon,
+                  size: new google.maps.Size(71, 71),
+                  origin: new google.maps.Point(0, 0),
+                  anchor: new google.maps.Point(17, 34),
+                  scaledSize: new google.maps.Size(25, 25)
+                };
+    
+                // Create a marker for each place.
+                var marker = new google.maps.Marker({
+                  map: window.maps[mapId],
+                  //icon: icon,
+                  title: place.name,
+                  position: place.geometry.location
+                });
+                
+                markers.push(marker);
+                marker.addListener('click', function(e) {
+                  console.log(place);
+                  var infowindow = new google.maps.InfoWindow();
+                  infowindow.setContent(place.name);
+                  infowindow.open(map, this);
+                  hydrateFromPlace(place.Id);
+                });
+                if (place.geometry.viewport) {
+                  // Only geocodes have viewport.
+                  bounds.union(place.geometry.viewport);
+                } else {
+                  bounds.extend(place.geometry.location);
+                }
+              });
+              window.maps[mapId].fitBounds(bounds);
+            });
+            
+            var bounds = new google.maps.LatLngBounds();
+            
+            var geo_cutoff = 10;
+            var geo_calls = 0;
+            for (var i = 0; i < listdata.recordData.length; i++)
+            {
+                var d = listdata.recordData[i];
+                
+                loc = {};
+                
+                for (var j = 0; j < listdata.fieldList.length; j++)
+                {
+                    loc["meta-" + listdata.fieldList[j]] = d[j];
+                }
+                
+                loc["id"] = d[listdata.fieldList.indexOf(formatObj.id)];
+                loc["title"] = d[listdata.fieldList.indexOf(formatObj.title)];
+                loc["latitude"] = d[listdata.fieldList.indexOf(formatObj.latitude)];
+                loc["longitude"] = d[listdata.fieldList.indexOf(formatObj.longitude)];
+                loc["address"] = d[listdata.fieldList.indexOf(formatObj.address)];
+                                
+                if (loc["latitude"] == "" || loc["longitude"] == "")
+                {
+                    geo_calls++;
+                    if (geo_calls < geo_cutoff)
+                    {
+                        geocoder.geocode({ 'address': loc.address }, function (results, status) {
+                            
+                            if (status == 'OK') {
+                                var marker = new google.maps.Marker({
+                                    position: {lat: results[0].geometry.location.lat (), lng: results[0].geometry.location.lng ()},
+                                    map: window.maps[mapId]
+                                });
+                                annotateMarker(marker, loc, bounds);
+                            } else {
+                                alert('Geocode was not successful for the following address: ' + loc.address + '\nReason: ' + status);
+                            }
+                        });
+                    }
+                }
+                else
+                {
+                    var latLng = {lat: results[0].geometry.location.lat (), lng: results[0].geometry.location.lng ()};
+                    var marker = new google.maps.Marker({
+                        position: latLng,
+                        map: window.maps[mapId]
+                    });
+                    annotateMarker(marker, loc, bounds);
+                }
+            }
+        }
+    }
+    function annotateMarker(marker, loc, bounds)
+    {
+        var ttip = "";
+        for (var property in loc) 
+        {
+            if (loc.hasOwnProperty(property) && property.startsWith("meta-"))
+            {
+                if (ttip != "")
+                {
+                    ttip += "<br/>";
+                }
+                var prop = property.substring(5);
+                if (prop.indexOf(' ') > -1)
+                {
+                    prop = prop.split(' ')[1];
+                }
+                ttip += prop.replace(/([A-Z])/g, ' $1').replace(/\_\_r/g, '').replace(/\_\_c/g, '').replace(/\./g, ' ').replace(/\_/g, ' ').replace(/  /g, ' ')
+                     + " : " + loc[property];
+            }
+        }
+        
+        marker.addListener('click', function(e) {
+            openLink(e, '/' + loc["id"])
+        });
+        marker.addListener('mouseover', function(e) {
+            showTooltip(e.Fa.pageX, e.Fa.pageY,
+              ttip
+            );
+        });
+        marker.addListener('mouseout', function(e) {
+            $('#tooltip').remove();
+        });
+        
+        bounds.extend(marker.position);
+        
+        window.maps[mapId].fitBounds(bounds);
+        
+        var listener = google.maps.event.addListener(window.maps[mapId], "idle", function () {
+            if (window.maps[mapId].getZoom() < 5)
+            {
+                window.maps[mapId].setZoom(5);
+            }
+            if (window.maps[mapId].getZoom() > 15)
+            {
+                window.maps[mapId].setZoom(15);
+            }
+            google.maps.event.removeListener(listener);
+        });
+    }
+</script>
+
+<script id="adhocV1" type="text/javascript">
+
+  function generateadhoc(result) {
+    try{
+
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      // PARSE RESULT STRING INTO DATA OBJECTS & SET CONSTANTS
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+      result = JSON.parse($('<div/>').html(result).text());
+      htmlElement = result.inputData[0].htmlElement;
+
+      var truedata = [];
+      result.chartsData.forEach(function(data, ndx) {
+         truedata.push(JSON.parse(data.replace(/amp;/g,"")));
+      });
+
+      // Hide container`s container if chart data is blank
+      if (truedata.length == 0)
+      {
+        $(htmlElement).parent().parent().hide();
+      }
+      else
+      {
+        $(htmlElement).parent().parent().show();
+      }
+
+      var colors = ["#CC3300","#FF6600","#AA1100","#000066","#0000EE","#000033","#770000","#CC0000"];
+
+
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      // BUILD CHART`S XAXIS XLABELS
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+      // Prebuild the xLabels array uniquified over all chartData objects and sorted
+      var xLabels = [];
+      for (var j = 0; j < truedata.length; j++) {
+        xLabels = xLabels.concat(truedata[j].xLabels);
+      }
+      xLabels = xLabels.unique();
+
+      xLabels = xLabels.sort(xLabelSorter);
+
+      // Clean up date formatting
+      xLabels.forEach(function(val, ndx) { xLabels[ndx] = val.replace(' 00:00:00', ''); });
+
+      // Add index values and dummy [1] to list of labels - format = [index, 1, label]
+      xLabels = (xLabels.indexArray()).zip(xLabels);
+
+
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      // TRANSFORM CHART DATA
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+      var seriesCnt = result.inputData.length;
+      var plotdata = new Array(truedata.length);
+      for (var j = 0; j < seriesCnt; j++) {
+
+        //break datasets into characterstics & datapairs
+        var seriesOffset = result.inputData[j].seriesOffset;
+
+        plotdata[j] = new Array(xLabels.length);
+
+        // pndx allows us to seek through plotdata, bypassing values that may be missing in this series
+        pndx = -1;
+        for (var k = 0; k < truedata[j].xLabels.length; k++) {
+          pndx++;
+          if (pndx == xLabels.length)
+          {
+              pndx = 0;
+          }
+          xlab = truedata[j].xLabels[k].replace(' 00:00:00','');
+          yval = parseFloat(truedata[j].yValues[k]);
+
+          // fill in any missing values with zeros
+          while (xLabels[pndx][1] != xlab) {
+            plotdata[j][pndx] = plotdata[j][pndx] || [pndx + seriesOffset, 0, ''];
+            pndx++;
+            if (pndx == xLabels.length)
+            {
+                pndx = 0;
+            }
+          }
+
+          // Need to build the where clause
+          wc = result.inputData[j].whereClause;
+          if (wc.length > 0) {
+            wc += ' and ';
+          }
+          wc += result.inputData[j].orderClause.replace(' asc','').replace(' desc','') + ' = \'' + xlab + '\'';
+
+          plotdata[j][pndx] = [pndx + seriesOffset, yval, wc];
+        }
+
+        // Pad the end of the array if need be
+        pndx = xLabels.length;
+        for (k = 0; k < plotdata[j].length; k++)
+        {
+            if (plotdata[j][k] === undefined)
+            {
+                pndx = k;
+                break;
+            }
+        }
+        for (k = pndx; k < xLabels.length; k++)
+        {
+          plotdata[j][k] = [k + seriesOffset, 0, ''];
+        }
+      }
+
+
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      // SHIFT THE XLABELS TO BE IN THE CENTER OF ALL BARS
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+      // Distinct offsets
+      var distinctOffsets = [];
+      for (var j = 0; j < seriesCnt; j++) {
+        var offs = result.inputData[j].seriesOffset;
+        if (offs === undefined || offs == null)
+        {
+            result.inputData[j].seriesOffset = 0;
+            offs = 0;
+        }
+        distinctOffsets.push(offs);
+      }
+      distinctOffsets = distinctOffsets.unique();
+      distinctOffsets = distinctOffsets.sort();
+
+      var barscl = 0.9;
+      var offrng = [distinctOffsets[0], distinctOffsets[distinctOffsets.length-1], barscl];
+
+      // Minimum delta
+      for ( var j = 1; j < distinctOffsets.length; j++ ) {
+        if ( offrng[2] >= (distinctOffsets[j] - distinctOffsets[j-1]) ) {
+          offrng[2] = barscl*(distinctOffsets[j] - distinctOffsets[j-1]);
+        }
+      }
+      offrng[2] = 0.9*Math.min(offrng[2], 0.5);
+
+      for ( var k = 0; k < xLabels.length; k++ ) {
+        xLabels[k][0] += (offrng[1] - offrng[0])/2;
+      }
+
+      // Need to shift all bars so that a zero offset lines up with line points
+      for ( var j = 0; j < plotdata.length; j++ ) {
+        if (result.inputData[j].chartType == 'bar') {
+          for ( var k = 0; k < plotdata[j].length; k++ ) {
+            plotdata[j][k][0] -= offrng[2]/2;
+          }
+        }
+      }
+
+
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      // TRACK MIN/MAX Y-VALUES
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+      var compData = [];
+      var maxy = [];
+      var miny = [];
+      var yaxes = [];
+      for (var j = 0; j < plotdata.length; j++)
+      {
+          var s = result.inputData[j].seriesOffset || 0;
+          var yax = result.inputData[j].yAxis - 1 || 0;
+
+          while (yax >= compData.length)
+          {
+              compData.push({});
+              maxy.push(0);
+              miny.push(0);
+          }
+          for (var k = 0; k < plotdata[j].length; k++)
+          {
+              if (compData[yax][s] === undefined)
+              {
+                compData[yax][s] = {};
+              }
+              var x = plotdata[j][k][0];
+              if (compData[yax][s][x] === undefined)
+              {
+                compData[yax][s][x] = [0,0];
+              }
+              var d = plotdata[j][k][1];
+              if (d < 0)
+              {
+                compData[yax][s][x][0] = compData[yax][s][x][0] + d;
+              }
+              else
+              {
+                compData[yax][s][x][1] = compData[yax][s][x][1] + d;
+              }
+          }
+      }
+
+      for (var i = 0; i < compData.length; i++) // axes
+      {
+          for (var j in compData[i]) // stacks
+          {
+              if (!compData[i].hasOwnProperty(j))
+              {
+                  continue;
+              }
+              for (var k in compData[i][j]) // x-pos
+              {
+                  if (!compData[i][j].hasOwnProperty(k))
+                  {
+                      continue;
+                  }
+                  if (maxy[i] < parseInt(compData[i][j][k][1])) { maxy[i] = parseInt(compData[i][j][k][1]); }
+                  if (miny[i] > parseInt(compData[i][j][k][0])) { miny[i] = parseInt(compData[i][j][k][0]); }
+              }
+          }
+      }
+      for (var k = 0; k < maxy.length; k++)
+      {
+          yaxes.push({min: miny[k], max: maxy[k], position: "left"});
+      }
+
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      // FINALIZE SERIES CREATION
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+      var plotinfo = [];
+      for ( var j = 0; j < plotdata.length; j++ )
+      {
+
+        var mycolor = colors[j];
+        if (result.inputData[j].chartColors != null && result.inputData[j].chartColors != null && result.inputData[j].chartColors.length > 0)
+        {
+            mycolor = result.inputData[j].chartColors[0];
+        }
+
+        var mylinewidth = 2;
+        if (result.inputData[j].chartStyles != null && result.inputData[j].chartStyles != null && result.inputData[j].chartStyles.length > 0)
+        {
+            mylinewidth = result.inputData[j].chartStyles[0];
+        }
+
+        var isbar = (result.inputData[j].chartType == 'bar');
+        plotinfo.push({
+            label: result.inputData[j].label,
+            data: plotdata[j],
+            objectType: result.inputData[j].objType,
+            xField: result.inputData[j].xField,
+            yFields: result.inputData[j].yFields,
+            whereClause:$("<span />", { html: result.inputData[j].whereClause }).text(),
+            color: mycolor,
+            highlightColor: 'rgba(255,255,255,0.5)',
+            bars: {
+                show: isbar,
+                barWidth: offrng[2],
+                fill: true,
+                fillColor: mycolor,//'rgba('+[(mycolor.replace('#','0x')>>16)&255, (mycolor.replace('#','0x')>>8)&255, mycolor.replace('#','0x')&255].join(',')+',0.5)',
+                lineWidth: 1
+            },
+            lines: {
+                show: !isbar,
+                lineWidth: mylinewidth
+            },
+            yaxis: result.inputData[j].yAxis,
+            stack: result.inputData[j].seriesOffset,
+            legendIndex: plotinfo.length,
+            isbar: isbar
+        });
+      }
+
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      // DISPLAY CHART
+      // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+      if (typeof result.inputData[0].legendContainer === 'undefined' || result.inputData[0].legendContainer == null)
+      {
+        legcont = null;
+        nocols = 2;
+      }
+      else if (result.inputData[0].legendContainer === '')
+      {
+        legcont = $(htmlElement + 'legendcontainer');
+        nocols = 0;
+      }
+      else
+      {
+        legcont = $(result.inputData[0].legendContainer);
+        nocols = 6;
+      }
+      myindex = chartobjects.length;
+      chartobjects.push($.plot($(htmlElement),
+          plotinfo,{
+              xaxes: [{
+                  min: -1,
+                  max: xLabels[xLabels.length - 1][0] + 1,
+                  ticks: xLabels,
+                  labelAngle: 0.2
+              }],
+              yaxes: yaxes,
+              grid: {
+                  backgroundColor: { colors: ["#D1D1D1", "#7A7A7A"] },
+                  clickable: true,
+                  hoverable: true
+              },
+              series: {
+                  shadowSize: 0,
+                  lines: {
+                    lineWidth: mylinewidth
+                  },
+                  plotIndex: myindex,
+                  element: htmlElement
+              },
+              legend: {
+                  show: true,
+                  labelBoxBorderColor: null,
+                  noColumns: nocols,
+                  position: "nw",
+                  margin: 10,
+                  backgroundColor: null,
+                  backgroundOpacity: 0,
+                  container:legcont,
+                  labelFormatter: function(label, series){
+                    return '<a href="#" onClick="togglePlot(chartobjects[' + series.plotIndex + '],\'' + series.element + '\',' + series.legendIndex + '); return false;">' + label + '</a>';
+                  }
+              }
+          }
+      ));
+
+      $(htmlElement).bind("plotclick", adhocClick);
+      $(htmlElement).bind("plothover", adhocHover);
+
+    } catch(e) {
+      console.log(e);
+      $(htmlElement).html('No Data Returned');
+    }
+  }
+
+  function adhocHover(event, pos, item) {
+    if (item)
+    {
+      if (previousPoint != item.dataIndex)
+      {
+        previousPoint = item.dataIndex;
+
+        $("#tooltip").remove();
+        var y2 = 0;
+        if (item.datapoint[2] != undefined)
+        {
+            y2 = item.datapoint[2].toFixed(0);
+        }
+        var y = item.datapoint[1].toFixed(0) - y2;
+
+        showTooltip(item.pageX, item.pageY,
+          y + " " + item.series.label + " at " + item.series.xaxis.ticks[item.dataIndex].label);
+      }
+    }
+    else
+    {
+      $("#tooltip").remove();
+      previousPoint = null;
+    }
+  }
+
+  function adhocClick(event, pos, item) {
+    if (item)
+    {
+      if (item.series.label.split(' ')[0] == 'Cumulative')
+      {
+        openVclosed = 'Cumulative ' + item.series.label.split(' ')[1];
+      }
+      else
+      {
+        openVclosed = item.series.label.split(' ')[0];
+      }
+
+      var reportInput = {
+        objType: item.series.objectType,
+        selectClause: '',//item.series.xField.trim() + ',' + item.series.yFields.join(',').replace(/\+/g,',').replace(/ /g,''),
+        chartType: (formatData.objectType == 'EmailMessage' ? 'email' : 'AdHoc'),
+        whereClause: $("<span />", { html: item.series.data[item.dataIndex][2] }).text()
+      };
+      var formatData = getDrillFormatStrings(item.series.objectType);
+
+      //formatData.fields += ',' + item.series.xField.trim() + ',' + item.series.yField.replace(/\+/g,',').replace(/ /g,'');
+      //formatData.formatStr += '<td>{' + (formatData.maxIndex++) + '}</td><td>{' + (formatData.maxIndex++) + '}</td>';
+      reportInput.selectClause = formatData.fields;
+      reportInput.htmlElement = "#drillDownList";
+      x3st_reports.Reporting.ReturnRecordList( JSON.stringify(reportInput), function(result, event) { injectRecordList(result, formatData); } );
+
+      $("#drillDownListtitle").html(item.series.objectType + 's ' + openVclosed + ' on ' +
+        item.series.xaxis.ticks[item.dataIndex].label
+      );
+      $("#drillDownListcontainer").css('border-color', item.series.color);
+    }
+  }
+
+  xLabelSorter = function (a, b)
+  {
+    if (a == null) { return -1; }
+    if (b == null) { return 1; }
+
+
+    if (a.constructor === Array)
+    {
+        ta = a[1];
+        tb = b[1];
+    }
+    else
+    {
+        ta = a;
+        tb = b;
+    }
+    if ( ta.match(/^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[1-2][0-9]|3[0-1])$/g) )
+    {
+      return new Date(ta) - new Date(tb);
+    }
+    else if (ta.match(/(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|(?:Nov|Dec)(?:ember)?) - (?:\d{4}|\d{2})/gi))
+    {
+        tad = new Date(Date.parse(ta.split("-")[0].trim() + " 1, " + ta.split("-")[1].trim()));
+        tbd = new Date(Date.parse(tb.split("-")[0].trim() + " 1, " + tb.split("-")[1].trim()));
+        ta = tad.getMonth() + tad.getYear()*100;
+        tb = tbd.getMonth() + tbd.getYear()*100;
+        return ta - tb;
+    }
+    else if (!isNaN(ta))
+    {
+      return ta*1 - tb*1;
+    }
+    else
+    {
+      if (ta > tb) { return 1; }
+      if (ta < tb) { return -1; }
+      return 0;
+    }
+  }
+
+    function RenderWidgets(widgets)
+    {
+        widgets = widgets.sort(function(a, b) {
+            if (a.top < b.top)
+            {
+                return -1;
+            }
+            else if (a.top > b.top)
+            {
+                return 1;
+            }
+            else if (a.left < b.left)
+            {
+                return -1;
+            }
+            else if (a.left > b.left)
+            {
+                return 1;
+            }
+            else
+            {
+                return 0;
+            }
+        });
+        widgets.forEach(RenderWidget);
+    }
+    
+    var COMBINE_CALLS;
+    var CALL_TIMEOUT;
+    
+    function RenderWidget(w)
+    {
+        if (COMBINE_CALLS == null || COMBINE_CALLS === undefined)
+        {
+            COMBINE_CALLS = true;
+        }
+        if (CALL_TIMEOUT == null || CALL_TIMEOUT === undefined)
+        {
+            CALL_TIMEOUT = 30000;
+        }
+        
+        var config = {buffer: COMBINE_CALLS, escape: true, timeout: CALL_TIMEOUT};
+        
+        // top, left, height, width, container, inputs
+
+        w.top = w.top * 2; // account for spacing row
+        
+        var hasC = true;
+        if (w.container === undefined || w.container == null)
+        {
+            hasC = false;
+        }
+        
+        if (!hasC)
+        {
+            var numR = $('#dashboard tr').length
+            if (w.top + 1 > numR)
+            {
+                var rDiff = w.top + 1 - numR;
+                if (numR > 0)
+                {
+                    $('#dashboard tr:last').after('<tr></tr><tr class="spacing"></tr>'.repeat(rDiff));
+                }
+                else
+                {
+                    $('#dashboard').html('<tr></tr><tr class="spacing"></tr>'.repeat(rDiff));
+                }
+            }
+    
+            var numC = $('#dashboard tr:nth-child(' + (w.top+1) + ') td').length;
+            if (w.left + 1 > numC)
+            {
+                var cDiff = w.left + 1 - numC;
+                if (numC > 0)
+                {
+                    $('#dashboard tr:nth-child(' + (w.top+1) + ') td:last').after('<td></td>'.repeat(cDiff));
+                }
+                else
+                {
+                    $('#dashboard tr:nth-child(' + (w.top+1) + ')').html('<td></td>'.repeat(cDiff));
+                }
+            }
+    
+            $cell = $('#dashboard tr:nth-child(' + (w.top+1) + ') td:nth-child(' + (w.left+1) + ')');
+            $cell.attr('colspan', w.width);
+            $cell.attr('rowspan', w.height);
+        }
+        else
+        {
+            $cell = $(w.container);
+        }
+        
+        $cell.html(addControl(w.inputs));
+
+        var winputs = w.inputs;
+        if (winputs.constructor === Array) { winputs = winputs[0]; }
+        if (winputs.constructor === Array) { winputs = winputs[0]; }
+        
+        var s = JSON.stringify(w.inputs);
+        if (w.inputs.constructor === Array && w.inputs[0].constructor !== Array && winputs.controlType != 'adhoc')
+        {
+            s = JSON.stringify([w.inputs]);
+        }
+        
+        if (winputs.controlType == 'trendingChart')
+        {
+            x3st_reports.Reporting.OpenedVsClosed( s, generatetrend, config );
+        }
+        else if (winputs.controlType == 'piechart' && winputs.chartType == 'pie')
+        {
+            x3st_reports.Reporting.FilterBy( s, generatepie, config );
+        }
+        else if (winputs.controlType == 'piechart' && winputs.chartType == 'fastpie')
+        {
+            x3st_reports.Reporting.GroupBy( s, generatepie, config );
+        }
+        else if (winputs.controlType == 'grid')
+        {
+            x3st_reports.Reporting.GenerateGrid( s, generategrid, config );
+        }
+        else if (winputs.controlType == 'directional')
+        {
+            x3st_reports.Reporting.GenerateGrid( s, generatedirectional, config );
+        }
+        else if (winputs.controlType == 'adhoc')
+        {
+            x3st_reports.Reporting.TrendData( s, generateadhoc, config );
+        }
+        else if (winputs.controlType == 'list')
+        {
+            x3st_reports.Reporting.ReturnRecordList( s, injectRecordList, config );
+        }
+        else if (winputs.controlType == 'calendar')
+        {
+            x3st_reports.Reporting.ReturnRecordList( s, displayCalendar, config );
+        }
+        else if (winputs.controlType == 'map')
+        {
+            x3st_reports.Reporting.ReturnRecordList( s, displayMap, config ); // need to write displayMap
+        }
+    }
+</script>
+
+</apex:component>

@@ -1,0 +1,615 @@
+<apex:component layout="none">
+<script type="text/javascript">
+function regexesGenerator()
+{
+  var exports = {};
+  exports.DELIMITER = new RegExp('\r?\n');
+  exports.FWD = new RegExp("^[-]+[ ]*Forwarded message[ ]*[-]+$", 'im');
+  exports.ON_DATE_SMB_WROTE = new RegExp("(-*[>]?[ ]?(On|Le|W dniu|Op|Am|P\xe5|Den)[ ].*(,|u\u017cytkownik)(.*\n){0,2}.*(wrote|sent|a \xe9crit|napisa\u0142|schreef|verzond|geschreven|schrieb|skrev):?-*)");
+  exports.ON_DATE_WROTE_SMB = new RegExp('(-*[>]?[ ]?(Op|Am)[ ].*(.*\n){0,2}.*(schreef|verzond|geschreven|schrieb)[ ]*.*:)');
+  exports.QUOTATION = new RegExp('((?:s|(?:me*){2,}).*me*)[te]*$');
+  exports.EMPTY_QUOTATION = new RegExp('((?:s|(?:me*){2,}))e*');
+  exports.ORIGINAL_MESSAGE = new RegExp('[\\s]*[-]+[ ]*(Original Message|Reply Message|Urspr\xfcngliche Nachricht|Antwort Nachricht|Oprindelig meddelelse)[ ]*[-]+', 'i');
+  exports.FROM_COLON_OR_DATE_COLON = new RegExp('(_+\\r?\\n)?[\\s]*(:?[*]?From|Van|De|Von|Fra|Fr\xe5n|Date|Datum|Envoy\xe9|Skickat|Sendt)[\\s]?:[*]?[\s]?.*', 'i');
+  exports.DATE_PERSON = new RegExp('(\\d+/\\d+/\\d+|\\d+\\.\\d+\\.\\d+).*@');
+  exports.SPELLED_OUT_DATE = new RegExp('\\S{3,10}, \\d\\d? \\S{3,10} 20\\d\\d,? \\d\\d?:\\d\\d(:\\d\\d)?( \\S+){3,6}@\\S+:');
+  exports.LINK = new RegExp('<(https?://[^>]*)>');
+  exports.NORMALIZED_LINK = new RegExp('@@(https?://[^>@]*)@@');
+  exports.PARENTHESIS_LINK = new RegExp('\\(https?://');
+  exports.QUOT_PATTERN = new RegExp('^>+ ?');
+  exports.NO_QUOT_LINE = new RegExp('^[^>].*[\S].*');
+  exports.SPLITTER_PATTERNS = [exports.ORIGINAL_MESSAGE, exports.DATE_PERSON, exports.ON_DATE_SMB_WROTE, exports.ON_DATE_WROTE_SMB, exports.FROM_COLON_OR_DATE_COLON, exports.SPELLED_OUT_DATE];
+  exports.BEGIN_FROM_OR_DATE = new RegExp('^From:|^Date');
+  return exports;
+}
+
+function planerGenerator()
+{
+  var exports = {};
+  var MAX_LINES_COUNT, REGEXES, SPLITTER_MAX_LINES, _CRLF_to_LF, _restore_CRLF, getDelimiter, htmlPlaner, isSplitter, postprocess, preprocess, setReturnFlags;
+
+  htmlPlaner = htmlPlanerGenerator();
+
+  REGEXES = regexesGenerator();
+
+  SPLITTER_MAX_LINES = 4;
+
+  MAX_LINES_COUNT = 1000;
+
+  exports.extractFrom = function(msgBody, contentType, dom) {
+    if (contentType == null) {
+      contentType = 'text/plain';
+    }
+    if (dom == null) {
+      dom = null;
+    }
+    if (contentType === 'text/plain') {
+      return exports.extractFromPlain(msgBody);
+    } else if (contentType === 'text/html') {
+      return exports.extractFromHtml(msgBody, dom);
+    } else {
+      console.warn('Unknown contentType', contentType);
+    }
+    return msgBody;
+  };
+
+  exports.extractFromPlain = function(msgBody) {
+    var delimiter, lines, markers;
+    delimiter = getDelimiter(msgBody);
+    msgBody = preprocess(msgBody, delimiter);
+    lines = msgBody.split(delimiter, MAX_LINES_COUNT);
+    markers = exports.markMessageLines(lines);
+    lines = exports.processMarkedLines(lines, markers);
+    msgBody = lines.join(delimiter);
+    msgBody = postprocess(msgBody);
+    return msgBody;
+  };
+
+  exports.extractFromHtml = function(msgBody, dom) {
+    var checkpoint, crlfReplaced, emailDocument, emailDocumentCopy, haveCutQuotations, i, index, k, l, len, len1, line, lineCheckpoints, lines, m, markers, matches, numberOfCheckpoints, plainTextMsg, quotationCheckpoints, ref, ref1, ref2, ref3, returnFlags;
+    if (dom == null) {
+      console.error("No dom provided to parse html.");
+      return msgBody;
+    }
+    if (msgBody.trim() === '') {
+      return msgBody;
+    }
+    ref = _CRLF_to_LF(msgBody), msgBody = ref[0], crlfReplaced = ref[1];
+    emailDocument = htmlPlaner.createEmailDocument(msgBody, dom);
+    haveCutQuotations = htmlPlaner.cutGmailQuote(emailDocument) || htmlPlaner.cutBlockQuote(emailDocument) || htmlPlaner.cutMicrosoftQuote(emailDocument) || htmlPlaner.cutById(emailDocument);// || htmlPlaner.cutFromBlock(emailDocument);
+    emailDocumentCopy = htmlPlaner.createEmailDocument(emailDocument.documentElement.outerHTML, dom);
+    numberOfCheckpoints = htmlPlaner.addCheckpoints(emailDocument.body, 0);
+    quotationCheckpoints = Array.apply(null, Array(numberOfCheckpoints)).map(function() {
+      return false;
+    });
+    htmlPlaner.replaceBreakTagsWithLineFeeds(emailDocument);
+    plainTextMsg = emailDocument.body.textContent;
+    plainTextMsg = preprocess(plainTextMsg, "\n", 'text/html');
+    lines = plainTextMsg.split('\n');
+    var fullLength = lines.length;
+    if (lines.length > MAX_LINES_COUNT) {
+      lines = lines.slice(0, MAX_LINES_COUNT);
+    }
+    lineCheckpoints = new Array(lines.length);
+    for (index = k = 0, len = lines.length; k < len; index = ++k) {
+      line = lines[index];
+      matches = line.match(htmlPlaner.CHECKPOINT_PATTERN) || [];
+      lineCheckpoints[index] = matches.map(function(match) {
+        return parseInt(match.slice(4, -4));
+      });
+    }
+    lines = lines.map(function(line) {
+      return line.replace(htmlPlaner.CHECKPOINT_PATTERN, '');
+    });
+    markers = exports.markMessageLines(lines);
+    returnFlags = {};
+    lines = exports.processMarkedLines(lines, markers, returnFlags);
+    if (!returnFlags.wereLinesDeleted) {
+      if (haveCutQuotations) {
+        return _restore_CRLF(emailDocumentCopy.documentElement.outerHTML, crlfReplaced);
+      } else {
+        return msgBody;
+      }
+    }
+    for (i = l = ref1 = returnFlags.firstLine, ref2 = returnFlags.lastLine; ref1 <= ref2 ? l <= ref2 : l >= ref2; i = ref1 <= ref2 ? ++l : --l) {
+      if (!lineCheckpoints[i]) {
+        continue;
+      }
+      ref3 = lineCheckpoints[i];
+      for (m = 0, len1 = ref3.length; m < len1; m++) {
+        checkpoint = ref3[m];
+        quotationCheckpoints[checkpoint] = true;
+      }
+      quotationCheckpoints[i] = true;
+    }
+    for (var i = MAX_LINES_COUNT; i < fullLength; i++)
+    {
+        quotationCheckpoints[i] = true;
+    }
+    htmlPlaner.deleteQuotationTags(emailDocumentCopy.body, 0, quotationCheckpoints);
+    return emailDocumentCopy.documentElement.outerHTML;
+  };
+
+  exports.markMessageLines = function(lines) {
+    var i, j, k, markers, ref, splitter, splitterLines;
+    markers = [];
+    i = 0;
+    while (i < lines.length) {
+      if (lines[i].trim() === '') {
+        markers[i] = 'e';
+      } else if (REGEXES.QUOT_PATTERN.test(lines[i])) {
+        markers[i] = 'm';
+      } else if (REGEXES.FWD.test(lines[i])) {
+        markers[i] = 'f';
+      } else {
+        splitter = isSplitter(lines.slice(i, i + SPLITTER_MAX_LINES).join("\n"));
+        if (splitter) {
+          splitterLines = splitter[0].split("\n");
+          for (j = k = 0, ref = splitterLines.length; 0 <= ref ? k <= ref : k >= ref; j = 0 <= ref ? ++k : --k) {
+            markers[i + j] = 's';
+          }
+          i += splitterLines.length - 1;
+        } else {
+          markers[i] = 't';
+        }
+      }
+      i++;
+    }
+    return markers.join('');
+  };
+
+  isSplitter = function(line) {
+    var k, len, matchArray, pattern, ref;
+    ref = REGEXES.SPLITTER_PATTERNS;
+    for (k = 0, len = ref.length; k < len; k++) {
+      pattern = ref[k];
+      matchArray = pattern.exec(line);
+      if (matchArray && matchArray.index === 0) {
+        return matchArray;
+      }
+    }
+    return null;
+  };
+
+  exports.processMarkedLines = function(lines, markers, returnFlags) {
+    var inlineMatchRegex, inlineReplyIndex, inlineReplyMatch, isInlineReplyLink, quotationEnd, quotationMatch;
+    if (returnFlags == null) {
+      returnFlags = {};
+    }
+    if (markers.indexOf('s') < 0 && !/(me*){3}/.test(markers)) {
+      markers = markers.replace(/m/g, 't');
+    }
+    if (/^[te]*f/.test(markers)) {
+      setReturnFlags(returnFlags, false, -1, -1);
+      return lines;
+    }
+    inlineMatchRegex = new RegExp('m(?=e*((?:t+e*)+)m)', 'g');
+    while (inlineReplyMatch = inlineMatchRegex.exec(lines)) {
+      inlineReplyIndex = markers.indexOf(inlineReplyMatch[1], inlineReplyMatch.index);
+      isInlineReplyLink = false;
+      if (inlineReplyIndex > -1) {
+        isInlineReplyLink = REGEXES.PARENTHESIS_LINK.test(lines[inlineReplyIndex - 1]) || lines[inlineReplyIndex].trim().search(REGEXES.PARENTHESIS_LINK) === 0;
+      }
+      if (!isInlineReplyLink) {
+        setReturnFlags(returnFlags, false, -1, -1);
+        return lines;
+      }
+    }
+    quotationMatch = new RegExp('(se*)+((t|f)+e*)+', 'g').exec(markers);
+    if (quotationMatch) {
+      setReturnFlags(returnFlags, true, quotationMatch.index, lines.length);
+      return lines.slice(0, quotationMatch.index);
+    }
+    quotationMatch = REGEXES.QUOTATION.exec(markers) || REGEXES.EMPTY_QUOTATION.exec(markers);
+    if (quotationMatch) {
+      quotationEnd = quotationMatch.index + quotationMatch[1].length;
+      setReturnFlags(returnFlags, true, quotationMatch.index, quotationEnd);
+      return lines.slice(0, quotationMatch.index).concat(lines.slice(quotationEnd));
+    }
+    setReturnFlags(returnFlags, false, -1, -1);
+    return lines;
+  };
+
+  setReturnFlags = function(returnFlags, wereLinesDeleted, firstLine, lastLine) {
+    returnFlags.wereLinesDeleted = wereLinesDeleted;
+    returnFlags.firstLine = firstLine;
+    return returnFlags.lastLine = lastLine;
+  };
+
+  preprocess = function(msgBody, delimiter, contentType) {
+    if (contentType == null) {
+      contentType = 'text/plain';
+    }
+    msgBody = msgBody.replace(REGEXES.LINK, function(entireMatch, groupMatch1, matchIndex) {
+      var newLineIndex;
+      newLineIndex = msgBody.lastIndexOf("\n", matchIndex);
+      if (newLineIndex > 0 && msgBody[newLineIndex + 1] === '>') {
+        return entireMatch;
+      } else {
+        return "@@" + groupMatch1 + "@@";
+      }
+    });
+    if (contentType === 'text/plain') {
+      msgBody = msgBody.replace(REGEXES.ON_DATE_SMB_WROTE, function(entireMatch, groupMatch1, groupMatch2, groupMatch3, groupMatch4, matchIndex) {
+        if (matchIndex && msgBody[matchIndex - 1] !== "\n") {
+          return "" + delimiter + entireMatch;
+        } else {
+          return entireMatch;
+        }
+      });
+    }
+    return msgBody;
+  };
+
+  postprocess = function(msgBody) {
+    return msgBody.replace(REGEXES.NORMALIZED_LINK, '<$1>').trim();
+  };
+
+  getDelimiter = function(msgBody) {
+    var delmiterMatch;
+    delmiterMatch = REGEXES.DELIMITER.exec(msgBody);
+    if (delmiterMatch) {
+      return delmiterMatch[0];
+    } else {
+      return "\n";
+    }
+  };
+
+  _CRLF_to_LF = function(msgBody) {
+    var delimiter;
+    delimiter = getDelimiter(msgBody);
+    if (delimiter === '\r\n') {
+      return [msgBody.replace(new RegExp(delimiter, 'g'), '\n'), true];
+    }
+    return [msgBody, false];
+  };
+
+  _restore_CRLF = function(msgBody, replaced) {
+    if (replaced == null) {
+      replaced = true;
+    }
+    if (replaced) {
+      return msgBody.replace(new RegExp('\n', 'g'), '\r\n');
+    }
+    return msgBody;
+  };
+
+  return exports;
+}
+
+function htmlPlanerGenerator()
+{
+  var exports = {};
+  var BREAK_TAG_REGEX, CHECKPOINT_PREFIX, CHECKPOINT_SUFFIX, DOCUMENT_POSITION_FOLLOWING, DOCUMENT_POSITION_PRECEDING, OUTLOOK_SPLITTER_QUERY_SELECTORS, OUTLOOK_SPLITTER_QUOTE_IDS, OUTLOOK_XPATH_SPLITTER_QUERIES, QUOTE_IDS, compareByDomPosition, elementIsAllContent, ensureTextNodeBetweenChildElements, findMicrosoftSplitter, findOutlookSplitterWithQuerySelector, findOutlookSplitterWithQuoteId, findOutlookSplitterWithXpathQuery, findParentDiv, hasTagName, isTextNodeWrappedInSpan, removeNodes;
+
+  CHECKPOINT_PREFIX = '#!%!';
+
+  CHECKPOINT_SUFFIX = '!%!#';
+
+  exports.CHECKPOINT_PATTERN = new RegExp(CHECKPOINT_PREFIX + "\\d+" + CHECKPOINT_SUFFIX, 'g');
+
+  QUOTE_IDS = ['OLK_SRC_BODY_SECTION'];
+
+  exports.createEmailDocument = function(msgBody, dom) {
+    var emailBodyElement, emailDocument, head, htmlElement;
+    emailDocument = dom.implementation.createHTMLDocument();
+    htmlElement = emailDocument.getElementsByTagName('html')[0];
+    htmlElement.innerHTML = msgBody.trim();
+    if (emailDocument.body == null) {
+      emailBodyElement = emailDocument.getElementsByTagName('body')[0];
+      emailDocument.body = emailBodyElement;
+    }
+    head = emailDocument.getElementsByTagName('head')[0];
+    if (head) {
+      emailDocument.documentElement.removeChild(head);
+    }
+    return emailDocument;
+  };
+
+  exports.addCheckpoints = function(htmlNode, counter) {
+    var childNode, i, len, ref;
+    if (htmlNode.nodeType === 3) {
+      htmlNode.nodeValue = "" + (htmlNode.nodeValue.trim()) + CHECKPOINT_PREFIX + counter + CHECKPOINT_SUFFIX + "\n";
+      counter++;
+    }
+    if (htmlNode.nodeType === 1) {
+      if (!hasTagName(htmlNode, 'body')) {
+        htmlNode.innerHTML = "  " + htmlNode.innerHTML + "  ";
+      }
+      ensureTextNodeBetweenChildElements(htmlNode);
+      ref = htmlNode.childNodes;
+      for (i = 0, len = ref.length; i < len; i++) {
+        childNode = ref[i];
+        counter = exports.addCheckpoints(childNode, counter);
+      }
+    }
+    return counter;
+  };
+
+  exports.deleteQuotationTags = function(htmlNode, counter, quotationCheckpoints) {
+    var childNode, childTagInQuotation, i, j, len, len1, quotationChildren, ref, ref1, tagInQuotation;
+    tagInQuotation = true;
+    if (htmlNode.nodeType === 3) {
+      if (!quotationCheckpoints[counter]) {
+        tagInQuotation = false;
+      }
+      counter++;
+      return [counter, tagInQuotation];
+    }
+    if (htmlNode.nodeType === 1) {
+      childTagInQuotation = false;
+      quotationChildren = [];
+      if (!hasTagName(htmlNode, 'body')) {
+        htmlNode.innerHTML = "  " + htmlNode.innerHTML + "  ";
+      }
+      ensureTextNodeBetweenChildElements(htmlNode);
+      ref = htmlNode.childNodes;
+      for (i = 0, len = ref.length; i < len; i++) {
+        childNode = ref[i];
+        ref1 = exports.deleteQuotationTags(childNode, counter, quotationCheckpoints), counter = ref1[0], childTagInQuotation = ref1[1];
+        tagInQuotation = tagInQuotation && childTagInQuotation;
+        if (childTagInQuotation) {
+          quotationChildren.push(childNode);
+        }
+      }
+    }
+    if (tagInQuotation) {
+      return [counter, tagInQuotation];
+    } else {
+      for (j = 0, len1 = quotationChildren.length; j < len1; j++) {
+        childNode = quotationChildren[j];
+        htmlNode.removeChild(childNode);
+      }
+      return [counter, tagInQuotation];
+    }
+  };
+
+  exports.cutGmailQuote = function(emailDocument) {
+    var nodesArray;
+    nodesArray = emailDocument.getElementsByClassName('gmail_quote');
+    if (!(nodesArray.length > 0)) {
+      return false;
+    }
+    removeNodes(nodesArray);
+    return true;
+  };
+
+  exports.cutMicrosoftQuote = function(emailDocument) {
+    var afterSplitter, parentElement, splitterElement;
+    splitterElement = findMicrosoftSplitter(emailDocument);
+    if (splitterElement == null) {
+      return false;
+    }
+    parentElement = splitterElement.parentElement;
+    afterSplitter = splitterElement.nextElementSibling;
+    while (afterSplitter != null) {
+      parentElement.removeChild(afterSplitter);
+      afterSplitter = splitterElement.nextElementSibling;
+    }
+    parentElement.removeChild(splitterElement);
+    return true;
+  };
+
+  exports.cutBlockQuote = function(emailDocument) {
+    var blockquoteElement, div, parent, xpathQuery, xpathResult;
+    xpathQuery = '(.//blockquote)[not(ancestor::blockquote)][last()]';
+    xpathResult = emailDocument.evaluate(xpathQuery, emailDocument, null, 9, null);
+    blockquoteElement = xpathResult.singleNodeValue;
+    if (blockquoteElement == null) {
+      return false;
+    }
+    div = emailDocument.createElement('div');
+    parent = blockquoteElement.parentElement;
+    parent.removeChild(blockquoteElement);
+    return true;
+  };
+
+  exports.cutById = function(emailDocument) {
+    var found, i, len, quoteElement, quoteId;
+    found = false;
+    for (i = 0, len = QUOTE_IDS.length; i < len; i++) {
+      quoteId = QUOTE_IDS[i];
+      quoteElement = emailDocument.getElementById(quoteId);
+      if (quoteElement != null) {
+        found = true;
+        quoteElement.parentElement.removeChild(quoteElement);
+      }
+    }
+    return found;
+  };
+
+  exports.cutFromBlock = function(emailDocument) {
+    var afterSplitter, fromBlock, lastBlock, parentDiv, ref, splitterElement, textNode, xpathQuery, xpathResult;
+    xpathQuery = "//*[starts-with(normalize-space(.), 'From:')]|//*[starts-with(normalize-space(.), 'Date:')]";
+    xpathResult = emailDocument.evaluate(xpathQuery, emailDocument, null, 5, null);
+    while (fromBlock = xpathResult.iterateNext()) {
+      lastBlock = fromBlock;
+    }
+    if (lastBlock != null) {
+      parentDiv = findParentDiv(lastBlock);
+      if ((parentDiv != null) && !elementIsAllContent(parentDiv)) {
+        parentDiv.parentElement.removeChild(parentDiv);
+        return true;
+      }
+    }
+    xpathQuery = "//text()[starts-with(normalize-space(.), 'From:')]|//text()[starts-with(normalize-space(.), 'Date:')]";
+    xpathResult = emailDocument.evaluate(xpathQuery, emailDocument, null, 9, null);
+    textNode = xpathResult.singleNodeValue;
+    if (textNode == null) {
+      return false;
+    }
+    if (isTextNodeWrappedInSpan(textNode)) {
+      return false;
+    }
+    splitterElement = textNode.previousSibling;
+    if (splitterElement != null) {
+      if ((ref = splitterElement.parentElement) != null) {
+        ref.removeChild(splitterElement);
+      }
+    }
+    afterSplitter = textNode.nextSibling;
+    while (afterSplitter != null) {
+      afterSplitter.parentNode.removeChild(afterSplitter);
+      afterSplitter = textNode.nextSibling;
+    }
+    textNode.parentNode.removeChild(textNode);
+    return true;
+  };
+
+  findParentDiv = function(element) {
+    while ((element != null) && (element.parentElement != null)) {
+      if (hasTagName(element, 'div')) {
+        return element;
+      } else {
+        element = element.parentElement;
+      }
+    }
+    return null;
+  };
+
+  elementIsAllContent = function(element) {
+    var maybeBody;
+    maybeBody = element.parentElement;
+    return (maybeBody != null) && hasTagName(maybeBody, 'body') && maybeBody.childNodes.length === 1;
+  };
+
+  isTextNodeWrappedInSpan = function(textNode) {
+    var parentElement;
+    parentElement = textNode.parentElement;
+    return (parentElement != null) && hasTagName(parentElement, 'span') && parentElement.childNodes.length === 1;
+  };
+
+  BREAK_TAG_REGEX = new RegExp('<br\\s*[/]?>', 'gi');
+
+  exports.replaceBreakTagsWithLineFeeds = function(emailDocument) {
+    var currentHtml;
+    currentHtml = emailDocument.body.innerHTML;
+    return emailDocument.body.innerHTML = currentHtml.replace(BREAK_TAG_REGEX, "\n");
+  };
+
+  OUTLOOK_SPLITTER_QUERY_SELECTORS = {
+    outlook2007: "div[style='border:none;border-top:solid #B5C4DF 1.0pt;padding:3.0pt 0cm 0cm 0cm']",
+    outlookForAndroid: "div[style='border:none;border-top:solid #E1E1E1 1.0pt;padding:3.0pt 0cm 0cm 0cm']",
+    windowsMail: "div[style='padding-top: 5px; border-top-color: rgb(229, 229, 229); border-top-width: 1px; border-top-style: solid;']"
+  };
+
+  OUTLOOK_XPATH_SPLITTER_QUERIES = {
+    outlook2003: "//div/div[@class='MsoNormal' and @align='center' and @style='text-align:center']/font/span/hr[@size='3' and @width='100%' and @align='center' and @tabindex='-1']"
+  };
+
+  OUTLOOK_SPLITTER_QUOTE_IDS = {
+    office365: '#divRplyFwdMsg'
+  };
+
+  findMicrosoftSplitter = function(emailDocument) {
+    var _, possibleSplitterElements, querySelector, quoteId, splitterElement, xpathQuery;
+    possibleSplitterElements = [];
+    for (_ in OUTLOOK_SPLITTER_QUERY_SELECTORS) {
+      querySelector = OUTLOOK_SPLITTER_QUERY_SELECTORS[_];
+      if ((splitterElement = findOutlookSplitterWithQuerySelector(emailDocument, querySelector))) {
+        possibleSplitterElements.push(splitterElement);
+      }
+    }
+    for (_ in OUTLOOK_XPATH_SPLITTER_QUERIES) {
+      xpathQuery = OUTLOOK_XPATH_SPLITTER_QUERIES[_];
+      if ((splitterElement = findOutlookSplitterWithXpathQuery(emailDocument, xpathQuery))) {
+        possibleSplitterElements.push(splitterElement);
+      }
+    }
+    for (_ in OUTLOOK_SPLITTER_QUOTE_IDS) {
+      quoteId = OUTLOOK_SPLITTER_QUOTE_IDS[_];
+      if ((splitterElement = findOutlookSplitterWithQuoteId(emailDocument, quoteId))) {
+        possibleSplitterElements.push(splitterElement);
+      }
+    }
+    if (!possibleSplitterElements.length) {
+      return null;
+    }
+    return possibleSplitterElements.sort(compareByDomPosition)[0];
+  };
+
+  DOCUMENT_POSITION_PRECEDING = 2;
+
+  DOCUMENT_POSITION_FOLLOWING = 4;
+
+  compareByDomPosition = function(elementA, elementB) {
+    var documentPositionComparison;
+    documentPositionComparison = elementA.compareDocumentPosition(elementB);
+    if (documentPositionComparison & DOCUMENT_POSITION_PRECEDING) {
+      return 1;
+    } else if (documentPositionComparison & DOCUMENT_POSITION_FOLLOWING) {
+      return -1;
+    }
+    return 0;
+  };
+
+  findOutlookSplitterWithXpathQuery = function(emailDocument, xpathQuery) {
+    var splitterElement, xpathResult;
+    xpathResult = emailDocument.evaluate(xpathQuery, emailDocument, null, 9, null);
+    splitterElement = xpathResult.singleNodeValue;
+    if (splitterElement != null) {
+      splitterElement = splitterElement.parentElement.parentElement;
+      splitterElement = splitterElement.parentElement.parentElement;
+    }
+    return splitterElement;
+  };
+
+  findOutlookSplitterWithQuerySelector = function(emailDocument, query) {
+    var splitterElement, splitterResult;
+    splitterResult = emailDocument.querySelectorAll(query);
+    if (!(splitterResult.length > 1)) {
+      return;
+    }
+    splitterElement = splitterResult[1];
+    if ((splitterElement.parentElement != null) && splitterElement === splitterElement.parentElement.children[0]) {
+      splitterElement = splitterElement.parentElement;
+    }
+    return splitterElement;
+  };
+
+  findOutlookSplitterWithQuoteId = function(emailDocument, id) {
+    var splitterResult;
+    splitterResult = emailDocument.querySelectorAll(id);
+    if (!splitterResult.length) {
+      return;
+    }
+    return splitterResult[0];
+  };
+
+  removeNodes = function(nodesArray) {
+    var i, index, node, ref, ref1, results;
+    results = [];
+    for (index = i = ref = nodesArray.length - 1; ref <= 0 ? i <= 0 : i >= 0; index = ref <= 0 ? ++i : --i) {
+      node = nodesArray[index];
+      results.push(node != null ? (ref1 = node.parentNode) != null ? ref1.removeChild(node) : void 0 : void 0);
+    }
+    return results;
+  };
+
+  ensureTextNodeBetweenChildElements = function(element) {
+    var currentNode, dom, newTextNode, results;
+    dom = element.ownerDocument;
+    currentNode = element.childNodes[0];
+    if (!currentNode) {
+      newTextNode = dom.createTextNode(' ');
+      element.appendChild(newTextNode);
+      return;
+    }
+    results = [];
+    while (currentNode.nextSibling) {
+      if (currentNode.nodeType === 1 && currentNode.nextSibling.nodeType === 1) {
+        newTextNode = dom.createTextNode(' ');
+        element.insertBefore(newTextNode, currentNode.nextSibling);
+      }
+      results.push(currentNode = currentNode.nextSibling);
+    }
+    return results;
+  };
+
+  hasTagName = function(element, tagName) {
+    return element.tagName.toLowerCase() === tagName;
+  };
+  return exports;
+}
+</script>
+</apex:component>

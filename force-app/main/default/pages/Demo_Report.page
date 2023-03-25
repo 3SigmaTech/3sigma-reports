@@ -1,0 +1,525 @@
+<apex:page standardController="Account" extensions="Reporting" showHeader="false" sideBar="false" standardStylesheets="False">
+    <head>
+        <title>Demo Report</title>
+        <base target="_parent" />
+
+        <script type="text/javascript">
+
+            var useHorizontalFilters = false;
+
+            REPORTFILTERJSON = {displayToggles:true,displayButtons:true,
+            filterList: [{
+              name: 'Start Date',
+              type: 'DateTime-Local',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filter: 'Case.CreatedDate',
+              whereClause: ''
+            },{
+              name: 'End Date',
+              type: 'DateTime-Local',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filter: 'Case.CreatedDate',
+              whereClause: ''
+            },{
+              name: 'Recency',
+              type: 'Recency',
+              object_type: '',
+              value: '29',
+              label: '',
+              order: '',
+              filter: 'Case.CreatedDate',
+              whereClause: '',
+              entries: [
+                          {value:'0',label:'Today'}
+                        , {value:'1',label:'Two Days'}
+                        , {value:'6',label:'One Week'}
+                        , {value:'-7',label:'Next Week'}
+                        , {value:'13',label:'Two Weeks'}
+                        , {value:'29',label:'30 Days'}
+                        , {value:'89',label:'90 Days'}
+                        , {value:'179',label:'180 Days'}
+                        , {value:'359',label:'360 Days'}
+                        ]
+            },{
+              // Incomplete representation - this does not chain the names together. Do I care?
+              name: 'Account Name',
+              id: 'accounts',
+              type: 'Record List',
+              object_type: 'Account',
+              value: 'Id',
+              label: 'Name',
+              order: 'Name',
+              filters: [
+                {object_type:'Account', field:'Id'},
+                {object_type:'Case', field:'AccountId'},
+                {object_type:'Task', field:'What.AccountId'},
+                {object_type:'Email', field:'Account__c'}
+              ],
+              whereClause:  '(Type = \'Customer\' OR Type = \'Client\')'
+            },{
+              name: 'Record Owner',
+              id: 'owner',
+              type: 'Record List',
+              object_type: 'User',
+              value: 'Id',
+              label: 'Name',
+              order: 'Name',
+              filters: [
+                {object_type:'Case', field:'OwnerId'},
+                //{object_type:'Task', field:'Related_Case__r.OwnerId'},
+                {object_type:'Email', field:'Parent.OwnerId'}
+              ],
+              whereClause: 'IsActive = true '
+                          + '  AND Profile.Name != \'System Administrator\''
+                          + '  AND Profile.Name != \'Salesforce Administrator\''
+                          + '  AND (NOT Profile.Name LIKE \'%Community%\')'
+                          + '  AND UserRole.Name != \'\''
+            },{
+              name: 'Case Status',
+              id: 'status',
+              type: 'Picklist',
+              object_type: 'Case',
+              field_name: 'Status',
+              value: '',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'Status'},
+                //{object_type:'Task', field:'Related_Case__r.Status'},
+                {object_type:'Email', field:'Parent.Status'}
+              ]
+            },{
+              name: 'Case Status (Exclude)',
+              id: 'excludestatus',
+              type: 'Picklist',
+              object_type: 'Case',
+              field_name: 'Status',
+              value: '',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'Status', operator: 'not in'},
+                //{object_type:'Task', field:'Related_Case__r.Status', operator: 'not in'},
+                {object_type:'Email', field:'Parent.Status', operator: 'not in'}
+              ]
+            },{
+              name: 'Case Reason',
+              type: 'Picklist',
+              object_type: 'Case',
+              field_name: 'Reason',
+              value: '',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'Reason'},
+                //{object_type:'Task', field:'Related_Case__r.Reason'},
+                {object_type:'Email', field:'Parent.Reason'}
+              ]
+            },{
+              name: 'Case Record Type',
+              type: 'Record Type',
+              object_type: 'Case',
+              value: '',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'RecordTypeId'},
+                //{object_type:'Task', field:'Related_Case__r.RecordTypeId'},
+                {object_type:'Email', field:'Parent.RecordTypeId'}
+              ]
+            },{
+              name: 'Case Type',
+              type: 'Picklist',
+              object_type: 'Case',
+              field_name: 'Type',
+              value: '',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'Type'},
+                //{object_type:'Task', field:'Related_Case__r.Type'},
+                {object_type:'Email', field:'Parent.Type'}
+              ]
+            },{
+              name: 'Case Opened/Closed',
+              id: 'state',
+              type: 'Manual',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'IsClosed'},
+                //{object_type:'Task', field:'Related_Case__r.IsClosed'},
+                {object_type:'Email', field:'Parent.IsClosed'}
+              ],
+              entries: [
+                          {value:'false', label:'Open'}
+                        , {value:'true', label:'Closed'}
+                        ]
+            },{
+              name: 'Case Parent/Child Type',
+              id: 'parentcase',
+              type: 'Manual',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filters: [
+                {object_type:'Case', field:'ParentId'},
+                //{object_type:'Task', field:'Related_Case__r.ParentId'},
+                {object_type:'Email', field:'Parent.ParentId'}
+              ],
+              entries: [
+                          {value:'is null', label:'Parent Only'}
+                        , {value:'not null', label:'Child Only'}
+                        ]
+            },{
+              name: 'Show Beta/Standby/Removed Cases',
+              type: 'Toggle',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filter: 'gimmeAll'
+            },{
+              name: 'Time Filter Everything',
+              type: 'Toggle',
+              object_type: '',
+              value: '',
+              label: '',
+              order: '',
+              filter: 'getRetro'
+            }]};
+
+            function genReport(result)
+            {
+
+                if (result == 'Init')
+                {
+                  if (sforce.console.isInConsole())
+                  {
+                    //$("#caserecordtype").val("012360000012GS6AAM");
+                  }
+                  else
+                  {
+                      $("#openMe").hide();
+                  }
+                }
+                
+                var filters = defineFilters();
+                
+                if (filters.getRetro) {
+                  filters.closeFilter = ' and CreatedDate >=' + filters.startDt + ' and CreatedDate <= ' + filters.endDt;
+                } else {
+                  filters.closeFilter = ' and IsClosed = false ';
+                }
+                
+                if (filters.gimmeAll)
+                {
+                  filters.caseExtendedFilter = ' ';
+                }
+                else
+                {
+                  filters.caseExtendedFilter = ' and (NOT Account.Name like \'Test%\') and Status != \'Removed\'';
+                }
+                filters.modifiedCaseFilter = filters.caseFilter.replace(' and IsClosed in (false)', '') + ' AND ParentId = null';
+                
+                filters.taskExtendedFilter = ' and Type != \'\' and Subject != \'Auto-Response Sent\' and RecordTypeId=\'012360000012HNl\'';
+                
+                var dts = filters.startDt;
+                var dte = filters.endDt;
+                var dtds = filters.diffStartDt;
+                var dtde = filters.diffEndDt;
+                var baseWhere = filters.modifiedCaseFilter + filters.caseExtendedFilter;
+                var openWhere = ' and CreatedDate >=' + dts + ' and CreatedDate <= ' + dte + '';
+                var closeWhere = ' and ClosedDate >= ' + dts + ' and ClosedDate <= ' + dte + '';
+                var taskCloseWhere = ' and LastModifiedDate >= ' + dts + ' and LastModifiedDate <= ' + dte + ' and Status = \'Completed\'';
+                var openDiffWhere = ' and CreatedDate >= ' + dtds + ' and CreatedDate <= ' + dtde + '';
+                var closeDiffWhere = ' and ClosedDate >= ' + dtds + ' and ClosedDate <= ' + dtde + '';
+                var taskCloseDiffWhere = ' and LastModifiedDate >= ' + dtds + ' and LastModifiedDate <= ' + dtde + ' and Status = \'Completed\'';
+
+                var reportInput = {
+                    objType: 'Case',
+                    startDatestr: filters.startDt,
+                    endDatestr: filters.endDt,
+                    lowerThreshold: '0.01',
+                    comparisonOperator: '=',
+                    aggregateFunction: 'COUNT',
+                    chartType: 'integer',
+                    whereClause: filters.modifiedCaseFilter + filters.closeFilter + filters.caseExtendedFilter
+                };
+
+
+                var widgets = []; // left, top, height, width, reportInput
+
+                widgets = widgets.concat([
+                {
+                    left:0,top:0,height:1,width:12,
+                    inputs:mergeObjects(reportInput,{
+                        htmlElement: '#accountLocations',
+                        objType: 'Account',
+                        label: 'Account Billing Locations',
+                        controlType: 'map',
+                        //chartType: 'simple',
+                        selectClause: 'Id,CreatedDate,Name,BillingAddress,BillingStreet,BillingCity,BillingState,BillingCountry,BillingLatitude,BillingLongitude',
+                        listFormat: '{"id":"Id","title":"Name","address":"BillingStreet","latitude":"BillingLatitude","longitude":"BillingLongitude"}',
+                        whereClause: filters.accountFilter
+                    })
+                },{
+                    left:0,top:1,height:1,width:12,
+                    inputs:mergeObjects(reportInput,{
+                        htmlElement: '#casesOpened',
+                        label: 'Cases Opened',
+                        controlType: 'calendar',
+                        selectClause: 'Id,CreatedDate,Subject,Priority',
+                        listFormat: '{"id":"Id","start":"CreatedDate","title":"Subject"}',
+                        whereClause: baseWhere
+                    })
+                },{
+                    left:0,top:2,height:1,width:12,
+                    inputs:mergeObjects(reportInput,{
+                        htmlElement: '#trendingTickets',
+                        label: 'Cases Opened vs Closed',
+                        controlType: 'trendingChart',
+                        chartType: 'simple',
+                        whereClause: baseWhere
+                    })
+                }/*,{
+                    left:0,top:2,height:1,width:12,
+                    inputs:mergeObjects(reportInput,{
+                        htmlElement: '#trendingTasks',
+                        label: 'Tasks Opened vs Closed',
+                        controlType: 'trendingChart',
+                        chartType: 'simple',
+                        objType: 'Task',
+                        whereClause: filters.taskFilter
+                    })
+                },{
+                    left:0,top:2,height:1,width:12,
+                    inputs:mergeObjects(reportInput,{
+                        htmlElement: '#trendingEmails',
+                        label: 'Tasks Opened vs Closed',
+                        controlType: 'trendingChart',
+                        chartType: 'simple',
+                        objType: 'EmailMessage',
+                        whereClause: filters.emailFilter
+                    })
+                }*/,{
+                    left:4,top:3,height:1,width:2,
+                    inputs:mergeObjects(mergeObjects(reportInput,{
+                        htmlElement: '#fulfilleddiff',
+                        label: 'Cases Closed',
+                        controlType: 'directional',
+                        chartType: 'integer'
+                    }), [
+                      {whereClause: baseWhere + closeWhere},
+                      {whereClause: baseWhere + closeDiffWhere}
+                    ])
+                },{
+                    left:0,top:3,height:3,width:4,
+                    inputs:mergeObjects(mergeObjects(reportInput,{
+                        htmlElement: '#casemetrics',
+                        controlType: 'grid',
+                        title: 'Case Metrics',
+                    }), [
+                      mergeObjects({chartType:'header'},[{label: 'Metric'}, {label: 'Value'}]),
+
+                      mergeObjects({label: '<span style=\'color:#FF6600\'>Number of Cases Opened</span>', whereClause: baseWhere + openWhere},[{chartType: 'label'}, {}]),
+                      mergeObjects({label: '<span style=\'color:#0000CC\'>Number of Cases Closed</span>', whereClause: baseWhere + closeWhere},[{chartType: 'label'}, {}]),
+                      mergeObjects({label: '<span style=\'color:#CC0000\'>Number of Cases Still Open</span>', whereClause: baseWhere + ' And IsClosed = false'},[{chartType: 'label'}, {}]),
+                      //mergeObjects({label: '<span style=\'color:#008800\'>Number of Cases Opened And Still Open</span>', whereClause: baseWhere + openWhere + ' AND IsClosed = false'},[{chartType: 'label'}, {}]),
+                      //mergeObjects({},[{label: '<span style=\'color:#AA00FF\'>Net Change</span>', chartType: 'label'}, {label: '{1,1} - {1,2}', chartType: 'formula'}]),
+
+                      mergeObjects({label: 'Average Days To Close', whereClause: baseWhere + closeWhere, aggregateField: 'x3st_reports__Age_Days__c', aggregateFunction: 'AVG'},[{chartType: 'label'}, {}]),
+                    ])
+                },{
+                    left:0,top:5,height:1,width:4,
+                    inputs:mergeObjects(reportInput,{
+                        htmlElement: '#casesbystatus',
+                        label: 'Cases by Status',
+                        controlType: 'piechart',
+                        chartType: 'fastpie',
+                        groupClause: 'Status',
+                        lowerThreshold: '-1'
+                    })
+                },{
+                    left:1,top:5,height:1,width:4,
+                    inputs:mergeObjects(reportInput,{
+                        htmlElement: '#casesbytype',
+                        label: 'Cases by Type',
+                        controlType: 'piechart',
+                        chartType: 'fastpie',
+                        groupClause: 'Type',
+                        lowerThreshold: '-1'
+                    })
+                },{
+                    left:0,top:6,height:1,width:4,
+                    inputs:mergeObjects(reportInput,{
+                        htmlElement: '#casesbyaccount',
+                        label: 'Cases by Account',
+                        controlType: 'piechart',
+                        chartType: 'pie',
+                        groupClause: 'Account.Name'
+                    })
+                },{
+                    left:1,top:6,height:1,width:4,
+                    inputs:mergeObjects(reportInput,{
+                        htmlElement: '#casesbyowner',
+                        label: 'Cases by Owner',
+                        controlType: 'piechart',
+                        chartType: 'pie',
+                        groupClause: 'Owner.Name'
+                    })
+                }]);
+
+                RenderWidgets(widgets);
+            }
+
+            function getDrillFormatStrings(objType)
+            {
+              var retObj = { objectType: objType, headers: [], fields: '', formatStr: '', maxIndex: 0 };
+
+              var ndx = 0;
+              if (objType == 'Case')
+              {
+                retObj.headers.push('Case Number');
+                retObj.fields = 'Id,CaseNumber';
+                retObj.formatStr = '<td><a href="/{' + ndx + '}" onclick="openLink(event, \'/{' + ndx++ + '}\')">{' + ndx++ + '}</a></td>';
+
+                retObj.headers.push('Subject');
+                retObj.fields += ',Subject';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Status');
+                retObj.fields += ',Status';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Reason');
+                retObj.fields += ',Reason';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Type');
+                retObj.fields += ',Type';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Contact');
+                retObj.fields += ',ContactId,Contact.Name';
+                retObj.formatStr += '<td><a href="/{' + ndx + '}" onclick="openLink(event, \'/{' + ndx++ + '}\')">{' + ndx++ + '}</a></td>';
+
+                retObj.headers.push('Account');
+                retObj.fields += ',AccountId,Account.Name';
+                retObj.formatStr += '<td><a href="/{' + ndx + '}" onclick="openLink(event, \'/{' + ndx++ + '}\')">{' + ndx++ + '}</a></td>';
+
+                retObj.headers.push('Created');
+                retObj.fields += ',CreatedDate';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Last Mod');
+                retObj.fields += ',LastModifiedDate';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Closed');
+                retObj.fields += ',ClosedDate';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                /*
+                retObj.headers.push('Average Response Time (Min)');
+                retObj.fields += ',Average_Time_to_Respond__c';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Time to First Contact (Min)');
+                retObj.fields += ',Time_to_First_Contact__c';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Messages Sent');
+                retObj.fields += ',Number_of_Messages_Sent__c';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Messages Received');
+                retObj.fields += ',Number_of_Messages_Received__c';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+                */
+                retObj.maxIndex = (ndx - 1);
+              }
+              else if (objType == 'EmailMessage')
+              {
+                retObj.headers.push('Email Record');
+                retObj.fields = 'Id';
+                retObj.formatStr = '<td><a href="/{' + ndx + '}" onclick="openLink(event, \'/{' + ndx + '}\')">{' + ndx++ + '}</a></td>';
+
+                retObj.headers.push('Case Number');
+                retObj.fields += ',Parent.Id,Parent.CaseNumber';
+                retObj.formatStr += '<td><a href="/{' + ndx + '}" onclick="openLink(event, \'/{' + ndx++ + '}\')">{' + ndx++ + '}</a></td>';
+
+                retObj.headers.push('Subject');
+                retObj.fields += ',Subject';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('HTML Body');
+                retObj.fields += ',HtmlBody';
+                retObj.formatStr += '<td><iframe srcdoc=\'{' + ndx++ + '}\'></iframe></td>';
+
+                /*
+                retObj.headers.push('Text Body');
+                retObj.fields += ',TextBody';
+                retObj.formatStr += '<td><iframe srcdoc=\'{' + ndx++ + '}\'></iframe></td>';
+                */
+
+                retObj.headers.push('Created');
+                retObj.fields += ',CreatedDate';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Incoming');
+                retObj.fields += ',Incoming';
+                retObj.formatStr += '<td class="checked{' + ndx++ + '}"></td>';
+
+
+                retObj.maxIndex = (ndx - 1);
+              }
+              else if (objType == "Task")
+              {
+                retObj.headers.push('Subject');
+                retObj.fields = 'Id, Subject';
+                retObj.formatStr = '<td><a href="/{' + ndx + '}" onclick="openLink(event, \'/{' + ndx++ + '}\')">{' + ndx++ + '}</a></td>';
+
+                retObj.headers.push('Status');
+                retObj.fields += ',Status';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Priority');
+                retObj.fields += ',Priority';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Created');
+                retObj.fields += ',CreatedDate';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('LastModifiedDate');
+                retObj.fields += ',LastModifiedDate';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('ActivityDate');
+                retObj.fields += ', ActivityDate';
+                retObj.formatStr += '<td>{' + ndx++ + '}</td>';
+
+                retObj.headers.push('Assigned To');
+                retObj.fields += ',OwnerId,Owner.Name';
+                retObj.formatStr += '<td><a href="/{' + ndx + '}" onclick="openLink(event, \'/{' + ndx++ + '}\')">{' + ndx++ + '}</a></td>';
+
+                retObj.maxIndex = (ndx - 1);
+              }
+              return retObj;
+            }
+        </script>
+    </head>
+    
+    <c:Report_Base />
+
+</apex:page>
